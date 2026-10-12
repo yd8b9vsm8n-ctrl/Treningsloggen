@@ -1,4 +1,4 @@
-# Treningslogg
+# Treningsloggen
 
 En app for å registrere treningsøkter på treningssenteret – styrke (vekt × reps) og
 innendørs kondisjon (mølle, spinning, romaskin osv.) – med historikk og statistikk

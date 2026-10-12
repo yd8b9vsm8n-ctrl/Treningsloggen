@@ -1,7 +1,7 @@
 'use strict';
 
 /* =========================================================
-   Treningslogg – all data lagres lokalt på enheten
+   Treningsloggen – all data lagres lokalt på enheten
    ========================================================= */
 
 const STORE_KEY = 'treningslogg.v1';
@@ -200,6 +200,7 @@ function migrate(d) {
   d.workouts ||= [];
   d.deletedDefaults ||= [];
   d.folders ||= [];
+  d.profile ||= {};
   for (const e of defaultExercises()) {
     const cur = d.exercises.find((x) => x.id === e.id);
     if (cur) {
@@ -519,11 +520,42 @@ function answerConfirm(value) {
   if (r) r(value);
 }
 const view = () => $('#view');
-function setHeader(title, back) {
+function setHeader(title, back, subtitle) {
   $('#title').textContent = title;
+  const s = $('#subtitle');
+  s.textContent = subtitle || '';
+  s.hidden = !subtitle;
   const b = $('#back-btn');
   b.hidden = !back;
   b.onclick = back ? () => (location.hash = back) : null;
+}
+function greeting() {
+  const h = new Date().getHours();
+  const part = h < 5 ? 'God natt' : h < 10 ? 'God morgen' : h < 17 ? 'Hei' : 'God kveld';
+  const name = db.profile?.name ? `, ${db.profile.name}` : '';
+  const day = new Date().toLocaleDateString('nb-NO', { weekday: 'long', day: 'numeric', month: 'long' });
+  return `${part}${name} · ${day}`;
+}
+
+// Topplinja blir glass når innholdet scrolles under den
+const onScroll = () => document.body.classList.toggle('scrolled', window.scrollY > 6);
+window.addEventListener('scroll', onScroll, { passive: true });
+
+// Dråpen i menyen glir til valgt fane
+function moveTabIndicator() {
+  const tabs = [...document.querySelectorAll('.tabbar a')];
+  const i = tabs.findIndex((a) => a.getAttribute('aria-current') === 'page');
+  const ind = $('.tab-indicator');
+  if (!ind) return;
+  ind.style.opacity = i < 0 ? '0' : '1';
+  if (i >= 0) ind.style.transform = `translateX(${i * 100}%)`;
+}
+
+// Utseende (gradient er standard / glass / flat) lagres per enhet
+const STYLES = [['gradient', 'Gradient'], ['glass', 'Glass'], ['flat', 'Flat']];
+function setStyle(v) {
+  document.documentElement.dataset.style = v;
+  try { localStorage.setItem('treningslogg.style', v); } catch {}
 }
 
 /* =========================================================
@@ -535,11 +567,12 @@ function route() {
   const [page, arg] = parts;
   let tab = page || 'home';
   if (page === 'okt' && arg) tab = 'historikk';
-  if (page === 'ovelser') tab = 'mer';
+  if (page === 'ovelser' || page === 'profil') tab = 'mer';
   document.querySelectorAll('.tabbar a').forEach((a) => {
     if (a.dataset.tab === tab) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
   $('.tabbar a[data-tab="okt"]').classList.toggle('has-dot', !!db.draft);
+  moveTabIndicator();
 
   switch (page) {
     case 'okt': arg ? renderWorkoutDetail(arg) : renderEditor(); break;
@@ -547,20 +580,76 @@ function route() {
     case 'statistikk': renderStats(arg); break;
     case 'mer': renderMore(); break;
     case 'ovelser': renderExercises(); break;
+    case 'profil': renderProfile(); break;
     default: renderHome();
   }
   window.scrollTo(0, 0);
+  onScroll();
 }
 window.addEventListener('hashchange', route);
 
 /* =========================================================
    Hjem
    ========================================================= */
+/* ---------- Ukemål ---------- */
+// Antall økter i uka som starter med mandag d (lokal tid)
+function workoutsInWeek(monday) {
+  const start = isoDay(monday);
+  const end = new Date(monday); end.setDate(end.getDate() + 7);
+  const endIso = isoDay(end);
+  return db.workouts.filter((w) => w.date >= start && w.date < endIso).length;
+}
+// Hvor mange uker på rad målet er nådd (denne uka teller med hvis den allerede er nådd)
+function goalStreak(goal) {
+  let streak = 0;
+  const wk = weekStart(new Date());
+  if (workoutsInWeek(wk) >= goal) streak++;
+  for (let i = 1; i < 520; i++) {
+    const d = new Date(wk); d.setDate(d.getDate() - 7 * i);
+    if (workoutsInWeek(d) >= goal) streak++; else break;
+  }
+  return streak;
+}
+function weeklyGoalCard() {
+  const goal = db.profile?.weeklyGoal;
+  if (!goal) {
+    return `<a class="card goal-card goal-empty" href="#/profil">
+      <div><b>Sett et ukemål</b><p class="small muted">Hvor mange økter vil du ha i uka? Følg fremgangen her.</p></div>
+      <span class="goal-arrow" aria-hidden="true">›</span></a>`;
+  }
+  const done = workoutsInWeek(weekStart(new Date()));
+  const pct = Math.min(100, (done / goal) * 100);
+  const left = Math.max(0, goal - done);
+  const dayIdx = (new Date().getDay() + 6) % 7; // 0 = mandag
+  const daysLeft = 7 - dayIdx; // inkludert i dag
+  const streak = goalStreak(goal);
+  const name = db.profile?.name ? `, ${db.profile.name}` : '';
+  let msg;
+  if (done >= goal) msg = done > goal ? `Målet er nådd – og vel så det${name}! 🎉` : `Ukemålet er nådd${name}! 🎉`;
+  else if (done === 0) msg = `Ny uke, nye muligheter${name}. Første økt venter! 💪`;
+  else if (left === 1) msg = `Bare én økt igjen${name} – du er nesten i mål! 🔥`;
+  else msg = `${left} økter igjen – du er godt i gang${name}! 💪`;
+  // Én strek per økt i målet, slik at fremdriften kan telles
+  const ticks = goal <= 14 ? Array.from({ length: goal - 1 }, (_, i) => `<span class="goal-tick" style="left:${((i + 1) / goal) * 100}%"></span>`).join('') : '';
+  return `<section class="card goal-card${done >= goal ? ' goal-done' : ''}">
+    <span class="goal-label">Ukemål</span>
+    <div class="goal-count"><b>${done}</b> av ${goal} økter</div>
+    <div class="goal-track" role="progressbar" aria-label="Økter denne uka" aria-valuemin="0" aria-valuemax="${goal}" aria-valuenow="${Math.min(done, goal)}">
+      <div class="goal-fill" style="width:${pct}%"></div>${ticks}
+    </div>
+    <p class="goal-msg">${esc(msg)}</p>
+    <div class="row between small muted">
+      <span>${done >= goal ? 'Bra jobba denne uka' : `${daysLeft} ${daysLeft === 1 ? 'dag' : 'dager'} igjen av uka`}</span>
+      ${streak > 1 ? `<span class="goal-streak">🔥 ${streak} uker på rad</span>` : ''}
+    </div>
+  </section>`;
+}
+
 function renderHome() {
-  setHeader('Treningslogg');
+  setHeader('Treningsloggen', null, greeting());
   const ws = sortedWorkouts();
   const now = new Date();
-  const wkStart = weekStart(now).toISOString().slice(0, 10);
+  const wkStart = isoDay(weekStart(now));
   const monthPrefix = todayISO().slice(0, 7);
   const thisWeek = ws.filter((w) => w.date >= wkStart).length;
   const thisMonth = ws.filter((w) => w.date.startsWith(monthPrefix)).length;
@@ -576,6 +665,8 @@ function renderHome() {
     html += `<button class="btn primary block big" data-act="start-workout" style="margin-top:8px">+ Registrer økt</button>`;
   }
 
+  html += weeklyGoalCard();
+
   html += `<div class="tiles">
     <div class="tile"><div class="v">${thisWeek}</div><div class="l">Denne uka</div></div>
     <div class="tile"><div class="v">${thisMonth}</div><div class="l">Denne måneden</div></div>
@@ -585,7 +676,7 @@ function renderHome() {
   if (installPromptEvent) {
     html += `<button class="btn secondary block" data-act="install">Installer appen på enheten</button>`;
   } else if (isIOS() && !isStandalone()) {
-    html += `<section class="card small"><b>Tips:</b> Trykk på <b>Del</b>-knappen i Safari og velg <b>«Legg til på Hjem-skjerm»</b> for å bruke Treningslogg som en app.</section>`;
+    html += `<section class="card small"><b>Tips:</b> Trykk på <b>Del</b>-knappen i Safari og velg <b>«Legg til på Hjem-skjerm»</b> for å bruke Treningsloggen som en app.</section>`;
   }
 
   html += `<h2 class="section-title">Siste økter</h2>`;
@@ -1708,12 +1799,73 @@ window.addEventListener('resize', () => {
 /* =========================================================
    Mer / innstillinger
    ========================================================= */
+/* =========================================================
+   Profil
+   ========================================================= */
+const GENDERS = [['female', 'Kvinne'], ['male', 'Mann'], ['other', 'Annet'], ['', 'Vil ikke oppgi']];
+
+function profileSummary() {
+  const p = db.profile || {};
+  const parts = [];
+  if (p.name) parts.push(p.name);
+  if (p.weeklyGoal) parts.push(`mål ${p.weeklyGoal}/uke`);
+  return parts.join(' · ') || 'Ikke satt opp';
+}
+
+function renderProfile() {
+  setHeader('Profil', '#/mer');
+  const p = db.profile || {};
+  const goal = p.weeklyGoal || 0;
+  view().innerHTML = `
+    <form class="stack" data-form="profile" onsubmit="return false">
+      <section class="card stack">
+        <h3>Om deg</h3>
+        <p class="small muted" style="margin-top:-4px">Alt er valgfritt og lagres bare på denne enheten.</p>
+        <label class="field">Navn<input name="name" maxlength="40" value="${esc(p.name || '')}" placeholder="Hva vil du kalles?" autocomplete="given-name"></label>
+        <div><label class="field">Kjønn</label>
+          <div class="chips" style="margin-top:6px" data-choice="gender">
+            ${GENDERS.map(([v, l]) => `<button type="button" class="chip" data-act="choice" data-v="${v}" aria-pressed="${(p.gender || '') === v}">${l}</button>`).join('')}
+          </div>
+          <input type="hidden" name="gender" value="${esc(p.gender || '')}">
+        </div>
+        <div class="cardio-grid" style="margin-top:0">
+          <label class="field">Alder (år)<input name="age" inputmode="numeric" value="${inputVal(p.age)}" placeholder="–"></label>
+          <label class="field">Vekt (kg)<input name="weightKg" inputmode="decimal" value="${inputVal(p.weightKg)}" placeholder="–"></label>
+        </div>
+      </section>
+
+      <section class="card stack">
+        <h3>Ukemål</h3>
+        <p class="small muted" style="margin-top:-4px">Hvor mange økter vil du ha i uka? Fremdriften vises på hjem-skjermen. Uka starter mandag.</p>
+        <div class="iv-stepper" style="margin-top:0">
+          <span>Økter per uke</span>
+          <div class="stepper">
+            <button type="button" data-act="goal-step" data-d="-1" aria-label="Færre økter">−</button>
+            <b data-goal-value>${goal || 'Av'}</b>
+            <button type="button" data-act="goal-step" data-d="1" aria-label="Flere økter">+</button>
+          </div>
+        </div>
+        <input type="hidden" name="weeklyGoal" value="${goal}">
+      </section>
+
+      <button type="button" class="btn primary block big" data-act="save-profile">Lagre profil</button>
+    </form>`;
+}
+
 function renderMore() {
   setHeader('Mer');
   const bytes = new Blob([localStorage.getItem(STORE_KEY) || '']).size;
   view().innerHTML = `
     <section class="card" style="padding:4px 14px">
+      <a class="ex-option" style="text-decoration:none;color:inherit" href="#/profil"><span>Profil</span><span class="kind">${esc(profileSummary())} ›</span></a>
       <a class="ex-option" style="text-decoration:none;color:inherit" href="#/ovelser"><span>Øvelser</span><span class="kind">${db.exercises.filter((e) => !e.hidden).length} ›</span></a>
+    </section>
+
+    <h2 class="section-title">Utseende</h2>
+    <section class="card">
+      <div class="style-picker" role="group" aria-label="Utseende">
+        ${STYLES.map(([v, l]) => `<button type="button" class="style-option" data-act="set-style" data-v="${v}" aria-pressed="${(document.documentElement.dataset.style || 'gradient') === v}"><span class="style-swatch sw-${v}"><i></i><i></i><b></b></span>${l}</button>`).join('')}
+      </div>
     </section>
 
     <h2 class="section-title">Sikkerhetskopi</h2>
@@ -1730,7 +1882,7 @@ function renderMore() {
 
     <h2 class="section-title">Faresone</h2>
     <section class="card"><button class="btn danger block" data-act="wipe">Slett alle data</button></section>
-    <p class="small muted" style="text-align:center;margin-top:18px">Treningslogg · versjon 2.2</p>`;
+    <p class="small muted" style="text-align:center;margin-top:18px">Treningsloggen · versjon 2.3</p>`;
 }
 
 function renderExercises() {
@@ -1747,7 +1899,7 @@ function renderExercises() {
 
 async function exportData() {
   const data = JSON.stringify({ app: 'treningslogg', exportedAt: new Date().toISOString(), ...db }, null, 2);
-  const name = `treningslogg-${todayISO()}.json`;
+  const name = `treningsloggen-${todayISO()}.json`;
   shareOrDownload(new Blob([data], { type: 'application/json' }), name);
 }
 // Velg datointervall før eksport til regneark
@@ -1856,7 +2008,7 @@ function exportCsv(from, to) {
     return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   }).join(';')).join('\n');
   const range = from || to ? `${from || "start"}_til_${to || todayISO()}` : todayISO();
-  shareOrDownload(new Blob([csv], { type: "text/csv" }), `treningslogg-${range}.csv`);
+  shareOrDownload(new Blob([csv], { type: "text/csv" }), `treningsloggen-${range}.csv`);
 }
 async function shareOrDownload(blob, name) {
   const file = new File([blob], name, { type: blob.type });
@@ -1884,6 +2036,7 @@ function importData(file) {
       const exIds = new Set(db.exercises.map((e) => e.id));
       for (const e of d.exercises) if (!exIds.has(e.id)) db.exercises.push(e);
       for (const f of d.folders || []) if (!folderById(f.id)) db.folders.push(f);
+      if (d.profile && !Object.values(db.profile || {}).some(Boolean)) db.profile = d.profile;
       const wIds = new Map(db.workouts.map((w, i) => [w.id, i]));
       let added = 0;
       for (const w of d.workouts) {
@@ -1894,7 +2047,7 @@ function importData(file) {
       toast(`Importert: ${added} nye økter`);
       route();
     } catch (e) {
-      toast('Kunne ikke lese fila – er det en eksport fra Treningslogg?');
+      toast('Kunne ikke lese fila – er det en eksport fra Treningsloggen?');
     }
   };
   reader.readAsText(file);
@@ -2150,6 +2303,34 @@ const actions = {
         <button class="danger" data-act="delete-workout" data-id="${esc(w.id)}">Slett økt</button>
       </div>`);
   },
+  'set-style': (el) => {
+    setStyle(el.dataset.v);
+    el.parentElement.querySelectorAll('[data-act="set-style"]').forEach((b) => b.setAttribute('aria-pressed', b === el));
+  },
+  'goal-step': (el) => {
+    const form = el.closest('form');
+    const v = Math.max(0, Math.min(21, (+form.elements.weeklyGoal.value || 0) + +el.dataset.d));
+    form.elements.weeklyGoal.value = v;
+    form.querySelector('[data-goal-value]').textContent = v || 'Av';
+  },
+  'save-profile': (el) => {
+    const f = el.closest('form').elements;
+    const age = num(f.age.value), weight = num(f.weightKg.value);
+    if (age != null && (age < 5 || age > 120)) { toast('Sjekk alderen – den ser ikke riktig ut'); return; }
+    if (weight != null && (weight < 20 || weight > 400)) { toast('Sjekk vekten – den ser ikke riktig ut'); return; }
+    db.profile = {
+      ...db.profile,
+      name: f.name.value.trim(),
+      gender: f.gender.value,
+      age: age != null ? Math.round(age) : null,
+      weightKg: weight,
+      weeklyGoal: +f.weeklyGoal.value || null,
+      updatedAt: Date.now(),
+    };
+    save();
+    location.hash = '#/';
+    toast(db.profile.weeklyGoal ? `Profilen er lagret – ukemål: ${db.profile.weeklyGoal} økter` : 'Profilen er lagret');
+  },
   'draft-folder': (el) => {
     if (!db.draft) return;
     db.draft.folderId = el.dataset.v || null;
@@ -2357,3 +2538,12 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 }
 
 route();
+
+// Fjern introskjermen når uttoningen er ferdig (reserve etter 2 sek)
+(() => {
+  const splash = document.getElementById('splash');
+  if (!splash) return;
+  const remove = () => splash.remove();
+  splash.addEventListener('animationend', (e) => { if (e.animationName === 'splash-out') remove(); });
+  setTimeout(remove, 2000);
+})();

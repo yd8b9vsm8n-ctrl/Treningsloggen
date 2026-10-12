@@ -1,4 +1,4 @@
-# Enkel lokal testserver for Treningslogg: http://localhost:5510/
+# Enkel lokal testserver for Treningsloggen: http://localhost:5510/
 $root = Split-Path -Parent $PSScriptRoot
 $port = 5510
 $listener = New-Object System.Net.HttpListener

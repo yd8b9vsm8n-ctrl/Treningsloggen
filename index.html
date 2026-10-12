@@ -7,25 +7,55 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="Treningslogg">
+  <meta name="apple-mobile-web-app-title" content="Treningsloggen">
   <meta name="description" content="Registrer styrke- og kondisjonsøkter på treningssenteret og følg fremgangen din.">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="stylesheet" href="styles.css">
-  <title>Treningslogg</title>
+  <script>try { document.documentElement.dataset.style = localStorage.getItem("treningslogg.style") || "gradient"; } catch (e) {}</script>
+  <title>Treningsloggen</title>
 </head>
 <body>
+  <!-- Introskjerm: logoen faller ned og lander, så tones appen fram (ca. 1 sek) -->
+  <div id="splash" aria-hidden="true">
+    <div class="splash-stage">
+      <div class="splash-logo">
+        <svg viewBox="0 0 512 512" width="96" height="96">
+          <defs>
+            <linearGradient id="splash-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2c2c2c"/><stop offset="1" stop-color="#1a1a1a"/></linearGradient>
+            <linearGradient id="splash-fg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff8a3d"/><stop offset="1" stop-color="#ff6b1a"/></linearGradient>
+          </defs>
+          <rect width="512" height="512" rx="120" fill="url(#splash-bg)"/>
+          <rect x="1.5" y="1.5" width="509" height="509" rx="118.5" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="3"/>
+          <g fill="url(#splash-fg)">
+            <rect x="96" y="176" width="40" height="160" rx="14"/>
+            <rect x="144" y="146" width="48" height="220" rx="16"/>
+            <rect x="320" y="146" width="48" height="220" rx="16"/>
+            <rect x="376" y="176" width="40" height="160" rx="14"/>
+            <rect x="192" y="238" width="128" height="36" rx="8"/>
+          </g>
+        </svg>
+      </div>
+      <div class="splash-shadow"></div>
+      <p class="splash-name">Treningsloggen</p>
+    </div>
+  </div>
+
   <header class="topbar">
     <button class="icon-btn" id="back-btn" aria-label="Tilbake" hidden>
       <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
-    <h1 id="title">Treningslogg</h1>
+    <div class="titles">
+      <p class="subtitle" id="subtitle" hidden></p>
+      <h1 id="title">Treningsloggen</h1>
+    </div>
   </header>
 
   <main id="view" tabindex="-1"></main>
 
   <nav class="tabbar" aria-label="Hovedmeny">
+    <span class="tab-indicator" aria-hidden="true"></span>
     <a href="#/" data-tab="home">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/></svg>
       <span>Hjem</span>

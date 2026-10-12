@@ -1,6 +1,6 @@
 {
-  "name": "Treningslogg",
-  "short_name": "Treningslogg",
+  "name": "Treningsloggen",
+  "short_name": "Treningsloggen",
   "description": "Registrer styrke- og kondisjonsøkter på treningssenteret og følg fremgangen din.",
   "lang": "no",
   "start_url": "./#/",
