@@ -33,6 +33,7 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; }
+html { overflow-x: hidden; }
 body {
   background: var(--bg);
   color: var(--text);
@@ -56,7 +57,7 @@ h3 { font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
   display: flex; align-items: center; gap: 4px;
   padding: calc(env(safe-area-inset-top) + 14px) 20px 12px;
   border-bottom: 1px solid transparent;
-  transition: background .25s, border-color .25s, padding .25s;
+  transition: background .25s, border-color .25s;
 }
 /* Blir glass når innholdet scrolles under */
 body.scrolled .topbar {
@@ -65,10 +66,9 @@ body.scrolled .topbar {
   border-bottom-color: var(--glass-border);
 }
 .topbar .titles { min-width: 0; }
-.topbar h1 { font-size: 30px; font-weight: 800; letter-spacing: -.025em; line-height: 1.1; transition: font-size .25s; }
-body.scrolled .topbar h1 { font-size: 20px; }
-.topbar .subtitle { font-size: 13px; font-weight: 600; color: var(--text-2); margin-bottom: 2px; transition: opacity .2s; }
-body.scrolled .topbar .subtitle { display: none; }
+/* Tittelen holder fast størrelse – endret høyde under scrolling gir hakking */
+.topbar h1 { font-size: 28px; font-weight: 800; letter-spacing: -.025em; line-height: 1.15; }
+.topbar .subtitle { font-size: 13px; font-weight: 600; color: var(--text-2); margin-bottom: 2px; }
 .icon-btn {
   display: inline-grid; place-items: center; width: 40px; height: 40px; margin-left: -10px;
   border: 0; background: none; border-radius: 12px; cursor: pointer;
@@ -77,6 +77,7 @@ body.scrolled .topbar .subtitle { display: none; }
 [hidden] { display: none !important; }
 
 main {
+  overflow-x: clip;
   max-width: 640px; margin: 0 auto;
   padding: 2px 16px calc(var(--tabbar-h) + var(--tabbar-gap) + env(safe-area-inset-bottom) + 28px);
   outline: none;
@@ -237,15 +238,15 @@ textarea { min-height: 84px; resize: vertical; }
 #sheet-root.open { pointer-events: auto; }
 .sheet-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.6); animation: fade .15s ease-out; }
 .sheet {
-  position: absolute; left: 0; right: 0; bottom: 0; max-width: 640px; margin: 0 auto;
-  max-height: 88dvh; display: flex; flex-direction: column;
+  position: absolute; left: 0; right: 0; bottom: var(--kb, 0px); max-width: 640px; margin: 0 auto;
+  max-height: min(88dvh, calc(var(--vvh, 100dvh) - env(safe-area-inset-top) - 16px)); display: flex; flex-direction: column;
   background: var(--surface); border-radius: 18px 18px 0 0;
-  padding: 8px 16px calc(env(safe-area-inset-bottom) + 16px);
+  padding: 8px 16px calc(var(--kb-pad, env(safe-area-inset-bottom)) + 16px);
   animation: up .2s ease-out;
 }
 .sheet .grab { width: 40px; height: 5px; border-radius: 3px; background: var(--border); margin: 0 auto 10px; flex: none; }
 .sheet h2 { font-size: 18px; margin-bottom: 10px; }
-.sheet .scroll { overflow-y: auto; margin: 0 -16px; padding: 0 16px; -webkit-overflow-scrolling: touch; }
+.sheet .scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin: 0 -16px; padding: 0 16px; -webkit-overflow-scrolling: touch; }
 @keyframes up { from { transform: translateY(30px); opacity: .6; } }
 @keyframes fade { from { opacity: 0; } }
 
@@ -276,12 +277,14 @@ textarea { min-height: 84px; resize: vertical; }
 .crosshair { stroke: var(--text-2); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0; }
 .hover-dot { fill: var(--accent); stroke: var(--surface); stroke-width: 3; opacity: 0; }
 .chart-tip {
-  position: absolute; top: 0; pointer-events: none; opacity: 0; transition: opacity .1s;
+  position: absolute; top: 0; left: 0; pointer-events: none; opacity: 0; visibility: hidden; transition: opacity .1s;
   background: var(--text); color: var(--bg); border-radius: 8px; padding: 6px 9px;
-  font-size: 12px; line-height: 1.35; white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,.18);
+  font-size: 12px; line-height: 1.35; white-space: normal; width: max-content; max-width: min(240px, 100%); box-shadow: 0 4px 14px rgba(0,0,0,.18);
 }
 .chart-tip b { font-size: 14px; }
-.chart-wrap.hovering .crosshair, .chart-wrap.hovering .hover-dot, .chart-wrap.hovering .chart-tip { opacity: 1; }
+.chart-wrap.hovering .crosshair, .chart-wrap.hovering .hover-dot, .chart-wrap.hovering .chart-tip { opacity: 1; visibility: visible; }
+/* Usynlig tooltip skal ikke gjøre siden bredere enn skjermen */
+.chart-wrap:not(.hovering) .chart-tip { display: none; }
 
 .pr-tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 .pr-tiles .tile .v { font-size: 22px; }
@@ -485,19 +488,19 @@ html[data-style="flat"] .goal-card:not(.goal-empty) { background: var(--surface)
 html[data-style="flat"] .sheet { background: var(--surface); backdrop-filter: none; -webkit-backdrop-filter: none; }
 
 /* =========================================================
-   Introskjerm (ca. 1 sek): logoen faller ned, spretter og lander
+   Introskjerm (ca. 3 sek): logoen faller ned, spretter og lander
    ========================================================= */
 #splash {
   position: fixed; inset: 0; z-index: 100;
   display: grid; place-items: center;
   background: radial-gradient(60% 40% at 50% 45%, rgba(255, 107, 26, .16), transparent 70%), #151515;
-  animation: splash-out .28s ease-in .82s forwards;
+  animation: splash-out .35s ease-in 2.65s forwards;
 }
 .splash-stage { display: flex; flex-direction: column; align-items: center; transform: translateY(-4vh); }
 .splash-logo {
   border-radius: 23%;
   filter: drop-shadow(0 12px 28px rgba(255, 107, 26, .28));
-  animation: splash-drop .74s cubic-bezier(.45, 0, .55, 1) both;
+  animation: splash-drop 1.1s cubic-bezier(.45, 0, .55, 1) both;
   transform-origin: 50% 100%;
 }
 .splash-logo svg { display: block; }
@@ -505,11 +508,11 @@ html[data-style="flat"] .sheet { background: var(--surface); backdrop-filter: no
 .splash-shadow {
   width: 78px; height: 10px; margin-top: 10px; border-radius: 50%;
   background: radial-gradient(closest-side, rgba(0, 0, 0, .65), transparent);
-  animation: splash-shadow .74s cubic-bezier(.45, 0, .55, 1) both;
+  animation: splash-shadow 1.1s cubic-bezier(.45, 0, .55, 1) both;
 }
 .splash-name {
   margin-top: 10px; font-size: 18px; font-weight: 800; letter-spacing: -.01em; color: var(--text);
-  animation: splash-name .3s ease-out .5s both;
+  animation: splash-name .5s ease-out .9s both;
 }
 @keyframes splash-drop {
   0%   { transform: translateY(-62vh) scale(.92); opacity: 0; animation-timing-function: cubic-bezier(.55, 0, 1, .45); }
@@ -535,3 +538,21 @@ html[data-style="flat"] .sheet { background: var(--surface); backdrop-filter: no
   .splash-logo, .splash-shadow, .splash-name { animation: none; }
   #splash { animation-delay: .4s; }
 }
+
+/* Datofelt: iOS Safari plasserer verdien høyt i feltet – sentrer den vertikalt */
+input[type="date"] {
+  -webkit-appearance: none; appearance: none;
+  display: flex; align-items: center;
+  height: 46px; min-height: 46px; padding: 0 12px; line-height: 46px; text-align: left;
+}
+input[type="date"]::-webkit-date-and-time-value { text-align: left; margin: 0; line-height: 46px; min-height: 46px; }
+input[type="date"]::-webkit-datetime-edit { padding: 0; line-height: 46px; }
+input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(.8); opacity: .8; }
+
+/* Notat fra forrige gang på en øvelse */
+.last-note {
+  margin-top: 8px; padding: 9px 12px; border-radius: 12px;
+  background: rgba(255, 194, 74, .09); border: 1px solid rgba(255, 194, 74, .28);
+  font-size: 14px; line-height: 1.4; white-space: pre-wrap;
+}
+.last-note-label { display: block; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--gold); margin-bottom: 2px; }
