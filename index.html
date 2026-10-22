@@ -9,11 +9,35 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="Treningsloggen">
   <meta name="description" content="Registrer styrke- og kondisjonsøkter på treningssenteret og følg fremgangen din.">
-  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="manifest" id="app-manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="apple-touch-icon" id="app-touch-icon" href="icons/apple-touch-icon.png">
+  <script>
+    // Hjemskjermikon etter telefonens tema: mørkt = original, lyst = hvit bakgrunn.
+    // iPhone/Android lagrer ikonet idet appen legges til, så valget skjer da.
+    (function () {
+      var mq = window.matchMedia && matchMedia("(prefers-color-scheme: light)");
+      function apply() {
+        var light = !!(mq && mq.matches);
+        document.getElementById("app-touch-icon").href = light ? "icons/apple-touch-icon-light.png" : "icons/apple-touch-icon.png";
+        document.getElementById("app-manifest").href = light ? "manifest-light.webmanifest" : "manifest.webmanifest";
+      }
+      apply();
+      if (mq && mq.addEventListener) mq.addEventListener("change", apply);
+    })();
+  </script>
   <link rel="stylesheet" href="styles.css">
-  <script>try { document.documentElement.dataset.style = localStorage.getItem("treningslogg.style") || "gradient"; } catch (e) {}</script>
+  <script>
+    // Sett fargetema før siden tegnes, så det ikke blinker i feil farge
+    (function () {
+      var t = "orange";
+      try { t = localStorage.getItem("treningslogg.theme") || "orange"; } catch (e) {}
+      var bg = { orange: "#151515", blue: "#f6f8fc", mint: "#0d1714" };
+      if (!bg[t]) t = "orange";
+      document.documentElement.dataset.theme = t;
+      document.querySelector('meta[name="theme-color"]').setAttribute("content", bg[t]);
+    })();
+  </script>
   <title>Treningsloggen</title>
 </head>
 <body>
@@ -21,13 +45,11 @@
   <div id="splash" aria-hidden="true">
     <div class="splash-stage">
       <div class="splash-logo">
-        <svg viewBox="0 0 512 512" width="96" height="96">
+        <!-- Bare manualen (uten ikonbakgrunnen), beskåret tett rundt formen -->
+        <svg viewBox="92 142 328 228" width="118" height="82">
           <defs>
-            <linearGradient id="splash-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2c2c2c"/><stop offset="1" stop-color="#1a1a1a"/></linearGradient>
-            <linearGradient id="splash-fg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff8a3d"/><stop offset="1" stop-color="#ff6b1a"/></linearGradient>
+            <linearGradient id="splash-fg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color: rgb(var(--accent2-rgb))"/><stop offset="1" style="stop-color: var(--accent)"/></linearGradient>
           </defs>
-          <rect width="512" height="512" rx="120" fill="url(#splash-bg)"/>
-          <rect x="1.5" y="1.5" width="509" height="509" rx="118.5" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="3"/>
           <g fill="url(#splash-fg)">
             <rect x="96" y="176" width="40" height="160" rx="14"/>
             <rect x="144" y="146" width="48" height="220" rx="16"/>
@@ -49,6 +71,11 @@
     <div class="titles">
       <p class="subtitle" id="subtitle" hidden></p>
       <h1 id="title">Treningsloggen</h1>
+    </div>
+    <!-- Tidtaker for økta som registreres; ligger i topplinja og følger derfor med ved scrolling -->
+    <div class="top-timer" id="top-timer" hidden aria-live="off">
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="13" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 9v4l2.5 2M10 2h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <span data-timer>0 min</span>
     </div>
   </header>
 

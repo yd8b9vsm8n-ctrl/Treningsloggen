@@ -1,13 +1,14 @@
-# Lager PNG-ikoner (oransje hantel på mørk bakgrunn) i ../icons
+# Lager PNG-ikoner i ../icons: oransje manual på mørk bakgrunn, og en lys variant med hvit bakgrunn
 Add-Type -AssemblyName System.Drawing
 $out = Join-Path (Split-Path -Parent $PSScriptRoot) 'icons'
 
-function New-Icon([int]$size, [string]$file, [bool]$rounded, [double]$glyphScale) {
+function New-Icon([int]$size, [string]$file, [bool]$rounded, [double]$glyphScale, [bool]$light = $false) {
   $bmp = New-Object System.Drawing.Bitmap $size, $size
   $g = [System.Drawing.Graphics]::FromImage($bmp)
   $g.SmoothingMode = 'AntiAlias'
   $g.Clear([System.Drawing.Color]::Transparent)
-  $bg = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 21, 21, 21))
+  $bgColor = if ($light) { [System.Drawing.Color]::FromArgb(255, 255, 255, 255) } else { [System.Drawing.Color]::FromArgb(255, 21, 21, 21) }
+  $bg = New-Object System.Drawing.SolidBrush $bgColor
   $white = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 255, 107, 26))
 
   function RR($x, $y, $w, $h, $r) {
@@ -36,4 +37,9 @@ New-Icon 192 'icon-192.png' $true 1.0
 New-Icon 512 'icon-512.png' $true 1.0
 New-Icon 512 'icon-maskable-512.png' $false 0.8
 New-Icon 180 'apple-touch-icon.png' $false 1.0
+# Lys variant: hvit bakgrunn, samme oransje manual
+New-Icon 192 'icon-light-192.png' $true 1.0 $true
+New-Icon 512 'icon-light-512.png' $true 1.0 $true
+New-Icon 512 'icon-light-maskable-512.png' $false 0.8 $true
+New-Icon 180 'apple-touch-icon-light.png' $false 1.0 $true
 Write-Host "Ikoner laget i $out"

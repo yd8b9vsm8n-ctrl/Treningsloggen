@@ -130,7 +130,7 @@ const FEELINGS = [
   { v: 1, e: '😫', l: 'Tung' },
   { v: 2, e: '😕', l: 'Litt tung' },
   { v: 3, e: '😐', l: 'OK' },
-  { v: 4, e: '🙂', l: 'Bra' },
+  { v: 4, e: '😊', l: 'Bra' },
   { v: 5, e: '💪', l: 'Knall' },
 ];
 
@@ -209,7 +209,9 @@ function migrate(d) {
   d.workouts ||= [];
   d.deletedDefaults ||= [];
   d.folders ||= [];
+  d.templates ||= [];
   d.profile ||= {};
+  delete d.profile.weightKg; // vekt er fjernet fra profilen og skal ikke ligge lagret
   // Mappen «Helkropp» heter nå «HIIT» (gjelder også egne øvelser)
   for (const e of d.exercises) if (e.cat === 'Helkropp') e.cat = 'HIIT';
   for (const e of defaultExercises()) {
@@ -531,13 +533,13 @@ function closeSheet() {
 // Appens egen bekreftelsesboks. Nettleserens confirm() blokkeres i enkelte
 // installerte apper og innebygde nettlesere, og svarer da «Avbryt» av seg selv.
 let confirmResolve = null;
-function askConfirm(text, { title = 'Er du sikker?', ok = 'OK', danger = false } = {}) {
+function askConfirm(text, { title = 'Er du sikker?', ok = 'OK', cancel = 'Avbryt', danger = false } = {}) {
   closeSheet();
   return new Promise((resolve) => {
     openSheet(`<h2>${esc(title)}</h2>
       <p style="white-space:pre-line;margin-bottom:16px">${esc(text)}</p>
       <div class="btn-row">
-        <button class="btn ghost" data-act="confirm-no">Avbryt</button>
+        <button class="btn ghost" data-act="confirm-no">${esc(cancel)}</button>
         <button class="btn ${danger ? 'danger-solid' : 'primary'}" data-act="confirm-yes">${esc(ok)}</button>
       </div>`);
     confirmResolve = resolve;
@@ -577,6 +579,13 @@ function fitSheetToKeyboard() {
   root.style.setProperty('--kb', kb + 'px');
   root.style.setProperty('--vvh', Math.round(vv.height) + 'px');
   root.style.setProperty('--kb-pad', kb > 0 ? '0px' : 'env(safe-area-inset-bottom)');
+  // Tastatur oppe: skjul menyen. Når det lukkes, ber vi Safari om å plassere faste
+  // elementer på nytt – ellers kan menyen bli hengende forskjøvet til man scroller.
+  const open = kb > 80;
+  if (document.body.classList.contains('kb-open') && !open) {
+    requestAnimationFrame(() => window.scrollTo(window.scrollX, window.scrollY));
+  }
+  document.body.classList.toggle('kb-open', open);
 }
 if (window.visualViewport) {
   visualViewport.addEventListener('resize', fitSheetToKeyboard);
@@ -597,11 +606,34 @@ function moveTabIndicator() {
   if (i >= 0) ind.style.transform = `translateX(${i * 100}%)`;
 }
 
-// Utseende (gradient er standard / glass / flat) lagres per enhet
-const STYLES = [['gradient', 'Gradient'], ['glass', 'Glass'], ['flat', 'Flat']];
-function setStyle(v) {
-  document.documentElement.dataset.style = v;
-  try { localStorage.setItem('treningslogg.style', v); } catch {}
+// Fargetema lagres per enhet. Gradient-stilen er fast; temaet bestemmer fargene.
+// Forhåndsvisningen i velgeren bruker temaets egne farger.
+const THEMES = [
+  { id: 'orange', name: 'Oransje', bg: '#151515', card: '#2a2a2a', text: '#f1eee8', accent: '#ff6b1a' },
+  { id: 'blue', name: 'Lys blå', bg: '#f6f8fc', card: '#ffffff', text: '#111827', accent: '#2563eb' },
+  { id: 'mint', name: 'Mint', bg: '#0d1714', card: '#1c2824', text: '#f3f1e8', accent: '#62e6b5' },
+];
+const currentTheme = () => (THEMES.some((t) => t.id === document.documentElement.dataset.theme) ? document.documentElement.dataset.theme : 'orange');
+const themeName = () => THEMES.find((t) => t.id === currentTheme()).name;
+
+function renderAppearance() {
+  setHeader('Utseende', '#/mer');
+  view().innerHTML = `<h2 class="section-title" style="margin-top:8px">Fargetema</h2>
+  <section class="card">
+    <div class="theme-picker" role="group" aria-label="Fargetema">
+      ${THEMES.map((t) => `<button type="button" class="theme-option" data-act="set-theme" data-v="${t.id}" aria-pressed="${currentTheme() === t.id}">
+        <span class="theme-swatch" style="--p-bg:${t.bg};--p-card:${t.card};--p-text:${t.text};--p-accent:${t.accent}"><i></i><i></i><b></b></span>${t.name}</button>`).join('')}
+    </div>
+  </section>`;
+}
+// Stilvalget (gradient/glass/flat) er fjernet – rydd bort den gamle innstillingen
+try { localStorage.removeItem('treningslogg.style'); } catch {}
+
+function setTheme(id) {
+  const t = THEMES.find((x) => x.id === id) || THEMES[0];
+  document.documentElement.dataset.theme = t.id;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', t.bg);
+  try { localStorage.setItem('treningslogg.theme', t.id); } catch {}
 }
 
 /* =========================================================
@@ -613,12 +645,13 @@ function route() {
   const [page, arg] = parts;
   let tab = page || 'home';
   if (page === 'okt' && arg) tab = 'historikk';
-  if (page === 'ovelser' || page === 'profil') tab = 'mer';
+  if (page === 'ovelser' || page === 'profil' || page === 'utseende') tab = 'mer';
   document.querySelectorAll('.tabbar a').forEach((a) => {
     if (a.dataset.tab === tab) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
   $('.tabbar a[data-tab="okt"]').classList.toggle('has-dot', !!db.draft);
   moveTabIndicator();
+  updateTimers();
 
   switch (page) {
     case 'okt': arg ? renderWorkoutDetail(arg) : renderEditor(); break;
@@ -627,6 +660,8 @@ function route() {
     case 'mer': renderMore(); break;
     case 'ovelser': renderExercises(); break;
     case 'profil': renderProfile(); break;
+    case 'utseende': renderAppearance(); break;
+    case 'favoritt': renderTemplateEditor(arg); break;
     default: renderHome();
   }
   window.scrollTo(0, 0);
@@ -660,7 +695,7 @@ function weeklyGoalCard() {
   const goal = db.profile?.weeklyGoal;
   if (!goal) {
     return `<a class="card goal-card goal-empty" href="#/profil">
-      <div><b>Sett et ukemål</b><p class="small muted">Hvor mange økter vil du ha i uka? Følg fremgangen her.</p></div>
+      <div><b>Sett et ukemål</b></div>
       <span class="goal-arrow" aria-hidden="true">›</span></a>`;
   }
   const done = workoutsInWeek(weekStart(new Date()));
@@ -678,16 +713,21 @@ function weeklyGoalCard() {
   // Én strek per økt i målet, slik at fremdriften kan telles
   const ticks = goal <= 14 ? Array.from({ length: goal - 1 }, (_, i) => `<span class="goal-tick" style="left:${((i + 1) / goal) * 100}%"></span>`).join('') : '';
   return `<section class="card goal-card${done >= goal ? ' goal-done' : ''}">
-    <span class="goal-label">Ukemål</span>
-    <div class="goal-count"><b>${done}</b> av ${goal} økter</div>
+    <div class="goal-top">
+      <div>
+        <span class="goal-label">Ukemål</span>
+        <div class="goal-count"><b>${done}</b> av ${goal} økter</div>
+      </div>
+      <div class="streak${streak ? '' : ' streak-zero'}" aria-label="${streak} ${streak === 1 ? 'uke' : 'uker'} på rad med nådd ukemål">
+        <span class="streak-flame" aria-hidden="true">🔥</span>
+        <div><b>${streak}</b><span>${streak === 1 ? 'uke' : 'uker'} på rad</span></div>
+      </div>
+    </div>
     <div class="goal-track" role="progressbar" aria-label="Økter denne uka" aria-valuemin="0" aria-valuemax="${goal}" aria-valuenow="${Math.min(done, goal)}">
       <div class="goal-fill" style="width:${pct}%"></div>${ticks}
     </div>
     <p class="goal-msg">${esc(msg)}</p>
-    <div class="row between small muted">
-      <span>${done >= goal ? 'Bra jobba denne uka' : `${daysLeft} ${daysLeft === 1 ? 'dag' : 'dager'} igjen av uka`}</span>
-      ${streak > 1 ? `<span class="goal-streak">🔥 ${streak} uker på rad</span>` : ''}
-    </div>
+    ${done >= goal ? '' : `<p class="small muted">${daysLeft} ${daysLeft === 1 ? 'dag' : 'dager'} igjen av uka</p>`}
   </section>`;
 }
 
@@ -705,7 +745,7 @@ function renderHome() {
     const n = db.draft.entries.length;
     html += `<section class="card active-banner stack">
       <div><h2>${db.draft.id ? 'Du redigerer en økt' : 'Registrering pågår'}</h2>
-      <p class="small muted">${fmtDate(db.draft.date)} · ${n} ${n === 1 ? 'øvelse' : 'øvelser'}</p></div>
+      <p class="small muted">${fmtDate(db.draft.date)} · ${n} ${n === 1 ? 'øvelse' : 'øvelser'}${hasTimer(db.draft) ? ` · ⏱ <span data-timer>${fmtElapsed(elapsedMin(db.draft))}</span>` : ''}</p></div>
       <a class="btn primary block big" href="#/okt">Fortsett registreringen</a></section>`;
   } else {
     html += `<button class="btn primary block big" data-act="start-workout" style="margin-top:8px">+ Registrer økt</button>`;
@@ -725,15 +765,113 @@ function renderHome() {
     html += `<section class="card small"><b>Tips:</b> Trykk på <b>Del</b>-knappen i Safari og velg <b>«Legg til på Hjem-skjerm»</b> for å bruke Treningsloggen som en app.</section>`;
   }
 
+  html += favoritesSection();
+
   html += `<h2 class="section-title">Siste økter</h2>`;
   if (!ws.length) {
     html += `<div class="empty"><svg viewBox="0 0 24 24"><path d="M3 10v4M6 7v10M18 7v10M21 10v4M6 12h12"/></svg>
-      <p>Ingen økter registrert ennå.<br>Trykk «Registrer økt» – styrkeøkter fører du gjerne inn underveis, løpe- og sykkeløkter etterpå.</p></div>`;
+      <p>Ingen økter registrert ennå.</p></div>`;
   } else {
-    html += ws.slice(0, 4).map((w) => workoutCard(w)).join('');
-    if (ws.length > 4) html += `<a class="btn ghost block" href="#/historikk">Se all historikk</a>`;
+    // Kun de fire siste, med et tydeligere fargepreg
+    html += `<div class="recent-list">${ws.slice(0, 4).map((w) => workoutCard(w, { quickRepeat: true })).join('')}</div>`;
+    html += `<a class="btn history-btn block" href="#/historikk">Se all historikk <span aria-hidden="true">›</span></a>`;
   }
   view().innerHTML = html;
+}
+
+/* =========================================================
+   Favorittøkter – egne ferdige økter med valgte øvelser
+   ========================================================= */
+const templateById = (id) => db.templates.find((t) => t.id === id);
+const templateExercises = (t) => t.exerciseIds.map((id) => db.exercises.find((e) => e.id === id)).filter(Boolean);
+
+function favoritesSection() {
+  const cards = db.templates.map((t) => {
+    const exs = templateExercises(t);
+    return `<div class="fav-card">
+      <button type="button" class="fav-main" data-act="fav-start" data-id="${esc(t.id)}">
+        <span class="fav-name">${esc(t.name)}</span>
+        <span class="fav-meta">${exs.length} ${exs.length === 1 ? 'øvelse' : 'øvelser'}</span>
+        <span class="fav-list">${esc(exs.slice(0, 3).map((e) => e.name).join(' · '))}${exs.length > 3 ? ' …' : ''}</span>
+      </button>
+      <button type="button" class="icon-btn fav-menu" data-act="fav-menu" data-id="${esc(t.id)}" aria-label="Valg for ${esc(t.name)}">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="5" cy="12" r="1.7" fill="currentColor"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/><circle cx="19" cy="12" r="1.7" fill="currentColor"/></svg>
+      </button>
+    </div>`;
+  }).join('');
+  return `<div class="section-head">
+      <h2 class="section-title">Mine favorittøkter</h2>
+      <button type="button" class="add-round" data-act="tpl-new" aria-label="Ny favorittøkt" title="Ny favorittøkt">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    ${db.templates.length ? `<div class="fav-grid">${cards}</div>`
+      : ''}`;
+}
+
+// Velg mellom vanlig økt og en favorittøkt når man trykker «Registrer økt»
+function openStartChooser() {
+  openSheet(`<h2>Registrer økt</h2>
+    <div class="scroll">
+      <button type="button" class="start-option" data-act="start-blank">
+        <span class="start-icon" aria-hidden="true">＋</span>
+        <span><b>Vanlig økt</b></span>
+      </button>
+      <p class="chip-label" style="margin-top:16px">Mine favorittøkter</p>
+      ${db.templates.length
+        ? db.templates.map((t) => {
+          const exs = templateExercises(t);
+          return `<button type="button" class="start-option" data-act="fav-start" data-id="${esc(t.id)}">
+            <span class="start-icon fav" aria-hidden="true">★</span>
+            <span><b>${esc(t.name)}</b><span class="small muted">${esc(exs.map((e) => e.name).join(' · ') || 'Ingen øvelser')}</span></span>
+          </button>`;
+        }).join('')
+        : `<p class="small muted">Du har ingen favorittøkter ennå.</p>
+           <button type="button" class="btn ghost block" style="margin-top:8px" data-act="tpl-new">+ Lag en favorittøkt</button>`}
+    </div>`);
+}
+
+async function startFromTemplate(id) {
+  const t = templateById(id);
+  if (!t) return;
+  if (db.draft && !(await askConfirm('Du har en økt som ikke er lagret. Vil du forkaste den og starte «' + t.name + '»?', { ok: 'Forkast og start', danger: true }))) return;
+  db.draft = { ...newDraft(), templateId: t.id };
+  db.draft.entries = templateExercises(t).map((e) => makeEntry(e.id));
+  save();
+  closeSheet();
+  goToEditor();
+  toast(`«${t.name}» er klar – ${db.draft.entries.length} øvelser`);
+}
+
+// Favorittøkten som lages/endres (holdes i minnet til den lagres)
+let tplDraft = null;
+function renderTemplateEditor(id) {
+  if (id && id !== 'ny') {
+    const t = templateById(id);
+    if (!t) { location.hash = '#/'; return; }
+    if (tplDraft?.id !== id) tplDraft = clone(t);
+  } else if (!tplDraft || tplDraft.id) {
+    tplDraft = { name: '', exerciseIds: [] };
+  }
+  const t = tplDraft;
+  setHeader(t.id ? 'Endre favorittøkt' : 'Ny favorittøkt', '#/');
+  t.exerciseIds = t.exerciseIds.filter((xid) => db.exercises.some((e) => e.id === xid));
+  const exs = t.exerciseIds.map((xid) => db.exercises.find((e) => e.id === xid));
+  view().innerHTML = `
+    <section class="card"><label class="field">Navn<input data-tpl-name maxlength="40" value="${esc(t.name)}" placeholder="f.eks. Beindag, Push, Intervaller" autocomplete="off"></label></section>
+    <h2 class="section-title">Øvelser · ${exs.length}</h2>
+    ${exs.length
+      ? `<section class="card tpl-list">${exs.map((e, i) => `<div class="tpl-row">
+          <span class="set-no">${i + 1}</span>
+          <span class="tpl-name">${esc(e.name)}<span class="small muted">${e.kind === 'cardio' ? 'Kondisjon' : 'Styrke'}</span></span>
+          <button type="button" class="del-btn" data-act="tpl-move" data-i="${i}" data-d="-1" aria-label="Flytt opp" ${i ? '' : 'disabled'}>↑</button>
+          <button type="button" class="del-btn" data-act="tpl-move" data-i="${i}" data-d="1" aria-label="Flytt ned" ${i < exs.length - 1 ? '' : 'disabled'}>↓</button>
+          <button type="button" class="del-btn" data-act="tpl-remove" data-i="${i}" aria-label="Fjern ${esc(e.name)}">×</button>
+        </div>`).join('')}</section>`
+      : '<p class="small muted" style="margin:0 2px 10px">Ingen øvelser ennå.</p>'}
+    <button class="btn secondary block big" data-act="tpl-add">+ Legg til øvelser</button>
+    <button class="btn primary block big" style="margin-top:12px" data-act="tpl-save">Lagre favorittøkt</button>
+    ${t.id ? `<button class="btn danger block" style="margin-top:10px" data-act="tpl-delete">Slett favorittøkt</button>` : ''}`;
 }
 
 function workoutCard(w, opts = {}) {
@@ -752,7 +890,10 @@ function workoutCard(w, opts = {}) {
   </a>
   <button class="icon-btn wo-menu" data-act="wo-menu" data-id="${esc(w.id)}" aria-label="Valg for økta ${esc(fmtDate(w.date))}">
     <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="5" cy="12" r="1.7" fill="currentColor"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/><circle cx="19" cy="12" r="1.7" fill="currentColor"/></svg>
-  </button></div>`;
+  </button>
+  ${opts.quickRepeat ? `<button type="button" class="quick-repeat add-round" data-act="repeat-workout" data-id="${esc(w.id)}" aria-label="Gjenta økta fra ${esc(fmtDate(w.date))}" title="Gjenta økta">
+    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M4 12a8 8 0 0 1 13.7-5.7L20 8.6M20 4v4.6h-4.6M20 12a8 8 0 0 1-13.7 5.7L4 15.4M4 20v-4.6h4.6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>` : ''}</div>`;
 }
 
 // Sletter en økt, med mulighet for å angre i noen sekunder
@@ -784,7 +925,51 @@ function draftFolderChips(d) {
 }
 
 function newDraft() {
-  return { date: todayISO(), startedAt: Date.now(), durationMin: null, feeling: null, note: '', folderId: null, entries: [] };
+  return { date: todayISO(), startedAt: Date.now(), durationMode: 'timer', durationMin: null, feeling: null, note: '', folderId: null, entries: [] };
+}
+
+/* ---------- Tidtaker for økta ---------- */
+// Tidtakeren gjelder nye økter (ikke redigering av gamle)
+const hasTimer = (d) => !!(d && d.startedAt && !d.id);
+const elapsedMin = (d) => Math.max(0, Math.floor((Date.now() - d.startedAt) / 60000));
+function fmtElapsed(min) {
+  if (min < 60) return `${min} min`;
+  return `${Math.floor(min / 60)} t ${String(min % 60).padStart(2, '0')} min`;
+}
+const durationMode = (d) => (hasTimer(d) ? d.durationMode || (d.durationMin != null ? 'manual' : 'timer') : 'manual');
+// Oppdaterer alle tidtakere på siden (kalles ved sidebytte og hvert 10. sekund)
+function updateTimers() {
+  const d = db.draft;
+  const top = $('#top-timer');
+  const onEditor = location.hash === '#/okt';
+  if (top) top.hidden = !(onEditor && hasTimer(d));
+  if (!hasTimer(d)) return;
+  const text = fmtElapsed(elapsedMin(d));
+  document.querySelectorAll('[data-timer]').forEach((el) => { if (el.textContent !== text) el.textContent = text; });
+}
+setInterval(updateTimers, 10000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) updateTimers(); });
+
+function durationBlock(d) {
+  if (!hasTimer(d)) {
+    return `<label class="field">Varighet for hele økta (minutter)<input inputmode="numeric" data-w="durationMin" value="${inputVal(d.durationMin)}" placeholder="f.eks. 60"></label>`;
+  }
+  const mode = durationMode(d);
+  const started = new Date(d.startedAt).toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' });
+  return `<div>
+    <label class="field">Varighet for hele økta</label>
+    <div class="seg-toggle" role="group" aria-label="Varighet">
+      <button type="button" data-act="dur-mode" data-v="timer" aria-pressed="${mode === 'timer'}">Bruk tidtaker</button>
+      <button type="button" data-act="dur-mode" data-v="manual" aria-pressed="${mode === 'manual'}">Egen tid</button>
+    </div>
+    ${mode === 'timer'
+      ? `<div class="timer-row">
+          <div><div class="timer-big" data-timer>${fmtElapsed(elapsedMin(d))}</div>
+          <div class="small muted">Startet kl. ${started}</div></div>
+          <button type="button" class="btn ghost sm" data-act="timer-reset">Start på nytt</button>
+        </div>`
+      : `<input inputmode="numeric" data-w="durationMin" value="${inputVal(d.durationMin)}" placeholder="Minutter, f.eks. 60" style="margin-top:10px" aria-label="Varighet i minutter">`}
+  </div>`;
 }
 // Gå til registreringen. Står vi allerede på #/okt, kommer ingen hashchange – tegn på nytt selv
 function goToEditor() {
@@ -805,15 +990,12 @@ function renderEditor() {
       <button class="btn primary block big" data-act="start-workout">+ Registrer økt</button>`;
     return;
   }
-  setHeader(d.id ? 'Rediger økt' : 'Registrer økt');
+  const tpl = d.templateId && templateById(d.templateId);
+  setHeader(d.id ? 'Rediger økt' : 'Registrer økt', null, tpl ? `⭐ ${tpl.name}` : '');
 
-  const elapsed = d.startedAt && !d.id ? Math.max(1, Math.round((Date.now() - d.startedAt) / 60000)) : null;
 
   let html = `<section class="card"><label class="field">Dato<input type="date" data-w="date" value="${esc(d.date)}" max="${todayISO()}"></label></section>`;
 
-  if (!d.entries.length) {
-    html += `<p class="small muted" style="margin:4px 2px 12px">Styrke: legg til øvelsen og før inn vekt og reps etter hvert sett underveis.<br>Løping, sykling o.l.: fyll inn tallene når økta er ferdig.</p>`;
-  }
 
   html += d.entries.map((en, i) => entryCard(en, i)).join('');
 
@@ -824,13 +1006,12 @@ function renderEditor() {
     <div class="feel" role="group" aria-label="Følelse">
       ${FEELINGS.map((f) => `<button type="button" data-act="feel" data-v="${f.v}" aria-pressed="${d.feeling === f.v}"><span class="e">${f.e}</span>${f.l}</button>`).join('')}
     </div>
-    <label class="field">Varighet for hele økta (minutter)<input inputmode="numeric" data-w="durationMin" value="${inputVal(d.durationMin)}" placeholder="${elapsed && elapsed >= 5 ? `${elapsed} (så langt)` : 'f.eks. 60'}"></label>
+    ${durationBlock(d)}
     <label class="field">Notat – hvordan kjentes kroppen?<textarea data-w="note" placeholder="Energi, søvn, smerter, hva gikk bra …">${esc(d.note)}</textarea></label>
   </section>
 
   <section class="card">
     <h3>Lagre i mappe</h3>
-    <p class="small muted" style="margin-top:2px">Valgfritt. Samle like økter, f.eks. «Beindag» eller «Intervaller».</p>
     <div class="chips" style="margin-top:10px" data-folder-chips>${draftFolderChips(d)}</div>
   </section>`;
 
@@ -1067,8 +1248,7 @@ function enduranceForm(en, i, cfg, unit, last) {
       <label class="field">Snittpuls<input inputmode="numeric" ${a} data-f="avgHr" value="${inputVal(en.avgHr)}" placeholder="${ph(lastSt?.avgHr, 0)}"></label>
     </div>
 
-    <div class="subhead">Segmenter <span class="muted">(valgfritt)</span></div>
-    <p class="small muted">Endret du ${cfg.speed === 'none' ? 'tempo eller nivå' : 'fart'} underveis? Legg inn hvert segment.${cfg.speed !== 'none' && cfg.distance ? ' Fyll inn to av tid, distanse og fart – det tredje regnes ut.' : ''}</p>
+    <div class="subhead">Segmenter</div>
     ${segs.map((s, j) => {
       const l = lastSegs[j] || {};
       const sa = `data-e="${i}" data-g="${j}"`;
@@ -1102,7 +1282,6 @@ function intervalForm(en, i, cfg, unit, last) {
         <button type="button" data-act="iv-count" data-e="${i}" data-d="1" aria-label="Ett intervall til">+</button>
       </div>
     </div>
-    <p class="small muted" style="margin-top:6px">Fyll inn tid og/eller distanse per drag${cfg.speed !== 'none' ? ', farten' : ''} og pausen etter.${cfg.speed !== 'none' && cfg.distance ? ' Mangler én av tid, distanse og fart, regnes den ut.' : ''}</p>
     ${ivs.map((x, j) => {
       const l = lastIvs[j] || lastIvs[lastIvs.length - 1] || {};
       const xa = `data-e="${i}" data-iv="${j}"`;
@@ -1168,7 +1347,21 @@ function blankPart() {
 }
 const blankInterval = () => ({ ...blankPart(), restSec: null });
 
+// Legger til flere øvelser i økta på én gang (fra flervalg i øvelsesvelgeren)
+function addExercisesToDraft(ids) {
+  if (!ids.length) return;
+  const first = db.draft.entries.length;
+  for (const id of ids) db.draft.entries.push(makeEntry(id));
+  save();
+  closeSheet();
+  renderEditor();
+  const el = document.getElementById(`entry-${first}`);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 function addExerciseToDraft(exId) {
+  addExercisesToDraft([exId]);
+}
+function makeEntry(exId) {
   const ex = exById(exId);
   const entry = { id: uid(), exerciseId: exId, note: '' };
   const hist = historyFor(exId, db.draft.id);
@@ -1184,12 +1377,7 @@ function addExerciseToDraft(exId) {
     entry.sets = Array.from({ length: n }, () => ({ weight: null, reps: null }));
     entry.attempts = [];
   }
-  db.draft.entries.push(entry);
-  save();
-  closeSheet();
-  renderEditor();
-  const el = document.getElementById(`entry-${db.draft.entries.length - 1}`);
-  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  return entry;
 }
 
 // Gjør en øvelse klar for lagring: fjerner tomme rader og data fra ubrukt modus
@@ -1219,15 +1407,38 @@ function cleanEntry(orig) {
   return cardioStats(en) ? en : null;
 }
 
+// Ruller til den første øvelsen som mangler verdier og markerer de aktuelle kortene
+function highlightEntries(indexes) {
+  const cards = indexes.map((i) => document.getElementById(`entry-${i}`)).filter(Boolean);
+  cards.forEach((c) => { c.classList.remove('needs-values'); void c.offsetWidth; c.classList.add('needs-values'); });
+  cards[0]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
 async function saveWorkout() {
   const d = db.draft;
-  const entries = d.entries.map(cleanEntry).filter(Boolean);
+  const cleaned = d.entries.map(cleanEntry);
+  const entries = cleaned.filter(Boolean);
+  // Øvelser uten verdier blir ikke lagret – si fra i stedet for å fjerne dem i stillhet
+  const emptyIdx = cleaned.map((en, i) => (en ? -1 : i)).filter((i) => i >= 0);
   if (!entries.length) {
-    toast('Legg inn minst én øvelse med verdier før du lagrer');
+    toast(d.entries.length ? 'Ingen av øvelsene har verdier ennå' : 'Legg til minst én øvelse før du lagrer');
+    if (emptyIdx.length) highlightEntries(emptyIdx);
     return;
   }
   const missingReps = entries.some((en) => en.sets && en.sets.some((s) => !setDone(s)));
-  if (missingReps && !(await askConfirm('Noen sett mangler antall reps. Vil du lagre likevel?', { title: 'Mangler reps', ok: 'Lagre likevel' }))) return;
+  if (emptyIdx.length || missingReps) {
+    const lines = [];
+    if (emptyIdx.length) {
+      lines.push(`${emptyIdx.length === 1 ? 'Denne øvelsen har' : 'Disse øvelsene har'} ingen verdier og blir ikke lagret:`);
+      lines.push(...emptyIdx.map((i) => `• ${exById(d.entries[i].exerciseId).name}`));
+    }
+    if (missingReps) lines.push(`${emptyIdx.length ? '\n' : ''}Noen sett mangler antall reps.`);
+    const ok = await askConfirm(lines.join('\n'), { title: 'Mangler verdier', ok: 'Lagre likevel', cancel: 'Gå tilbake' });
+    if (!ok) {
+      if (emptyIdx.length) highlightEntries(emptyIdx);
+      return;
+    }
+  }
 
   // Finn nye rekorder før lagring
   const records = [];
@@ -1247,9 +1458,10 @@ async function saveWorkout() {
   }
 
   let durationMin = d.durationMin;
-  if (durationMin == null && d.startedAt && !d.id && d.date === todayISO()) {
-    const m = Math.round((Date.now() - d.startedAt) / 60000);
-    if (m >= 5 && m <= 300) durationMin = m;
+  if (durationMode(d) === 'timer') {
+    // Tidtakeren – men ikke hvis den har stått på urimelig lenge (f.eks. glemt over natta)
+    const m = Math.max(1, elapsedMin(d));
+    durationMin = m <= 360 ? m : null;
   }
   if (durationMin == null) {
     // Ført inn i etterkant: bruk summen av kondisjonstid hvis det finnes
@@ -1279,11 +1491,34 @@ async function saveWorkout() {
 }
 
 /* ---------- Øvelsesvelger ---------- */
-function openExercisePicker() {
-  openSheet(`<h2>Legg til øvelse</h2>
+// Valgte øvelser i velgeren (i den rekkefølgen de ble valgt)
+let pickerSel = [];
+// target: 'draft' (økta som registreres) eller 'template' (favorittøkta som lages)
+let pickerTarget = 'draft';
+function openExercisePicker(keepSelection, target) {
+  if (target) pickerTarget = target;
+  if (!keepSelection) pickerSel = [];
+  openSheet(`<h2>Legg til øvelser</h2>
     <input type="search" data-search placeholder="Søk eller skriv navn på ny øvelse" autocomplete="off">
-    <div class="scroll" id="picker-list" style="margin-top:8px"></div>`);
+    <div class="scroll" id="picker-list" style="margin-top:8px"></div>
+    <div class="picker-footer"><button class="btn primary block big" data-act="picker-add"></button></div>`);
   renderPickerList('');
+  updatePickerFooter();
+}
+function updatePickerFooter() {
+  const btn = $('#sheet-root [data-act="picker-add"]');
+  if (!btn) return;
+  const n = pickerSel.length;
+  btn.disabled = !n;
+  btn.textContent = n ? `Legg til ${n} ${n === 1 ? 'øvelse' : 'øvelser'}` : 'Legg til';
+}
+function togglePick(id) {
+  const i = pickerSel.indexOf(id);
+  if (i >= 0) pickerSel.splice(i, 1); else pickerSel.push(id);
+  // Samme øvelse kan stå i flere mapper – oppdater alle knappene
+  document.querySelectorAll(`#picker-list [data-act="pick-ex"][data-id="${CSS.escape(id)}"]`)
+    .forEach((b) => b.setAttribute('aria-pressed', pickerSel.includes(id)));
+  updatePickerFooter();
 }
 // En øvelse hører til sin hovedkategori, og kan i tillegg vises i andre mapper (also)
 const inCat = (e, cat, withAlso) => (e.cat || 'Annet') === cat || (withAlso && (e.also || []).includes(cat));
@@ -1299,7 +1534,7 @@ function loadOpenFolders() {
 }
 function folder(key, title, count, content, icon) {
   return `<details class="folder" data-folder="${esc(key)}" ${openFolders.has(key) ? 'open' : ''}>
-    <summary><span class="folder-icon" aria-hidden="true">${icon || '📁'}</span><span class="folder-title">${esc(title)}</span><span class="folder-count">${count}</span><span class="chev" aria-hidden="true"></span></summary>
+    <summary>${icon ? `<span class="folder-icon" aria-hidden="true">${icon}</span>` : ''}<span class="folder-title">${esc(title)}</span><span class="folder-count">${count}</span><span class="chev" aria-hidden="true"></span></summary>
     <div class="folder-body">${content}</div>
   </details>`;
 }
@@ -1317,14 +1552,18 @@ function renderPickerList(q) {
   // Mest brukte øverst
   const counts = {};
   for (const w of db.workouts) for (const e of w.entries) counts[e.exerciseId] = (counts[e.exerciseId] || 0) + 1;
-  const inDraft = new Set((db.draft?.entries || []).map((e) => e.exerciseId));
+  const inDraft = new Set(pickerTarget === 'template' ? tplDraft?.exerciseIds || [] : (db.draft?.entries || []).map((e) => e.exerciseId));
+  const inLabel = pickerTarget === 'template' ? '(lagt til)' : '(i økta)';
   const visible = db.exercises.filter((e) => !e.hidden && (!query || e.name.toLowerCase().includes(query)));
 
   let html = '';
   if (query && !db.exercises.some((e) => e.name.toLowerCase() === query)) {
     html += `<button class="btn secondary block" style="margin:6px 0" data-act="new-ex" data-name="${esc(q.trim())}">+ Lag ny øvelse «${esc(q.trim())}»</button>`;
   }
-  const opt = (e) => `<button class="ex-option" data-act="pick-ex" data-id="${esc(e.id)}"><span>${esc(e.name)}${inDraft.has(e.id) ? ' <span class="muted small">(lagt til)</span>' : ''}</span><span class="kind">${e.kind === 'cardio' ? 'Kondisjon' : 'Styrke'}</span></button>`;
+  const opt = (e) => `<button class="ex-option pick" data-act="pick-ex" data-id="${esc(e.id)}" aria-pressed="${pickerSel.includes(e.id)}">
+    <span class="pick-check" aria-hidden="true"></span>
+    <span class="pick-name">${esc(e.name)}${inDraft.has(e.id) ? ` <span class="muted small">${inLabel}</span>` : ''}</span>
+    <span class="kind">${e.kind === 'cardio' ? 'Kondisjon' : 'Styrke'}</span></button>`;
 
   const byCat = (cat, withAlso) => visible.filter((e) => inCat(e, cat, withAlso)).sort(sortIn(cat));
   if (query) {
@@ -1335,7 +1574,7 @@ function renderPickerList(q) {
     }
   } else {
     const frequent = visible.filter((e) => counts[e.id]).sort((a, b) => counts[b.id] - counts[a.id]).slice(0, 6);
-    if (frequent.length) html += folder('mest-brukt', 'Mest brukt', frequent.length, frequent.map(opt).join(''), '★');
+    if (frequent.length) html += folder('mest-brukt', 'Mest brukt', frequent.length, frequent.map(opt).join(''));
     for (const cat of CATEGORIES) {
       const items = byCat(cat, true);
       if (items.length) html += folder(cat, cat, items.length, items.map(opt).join(''));
@@ -1371,19 +1610,16 @@ function openNewExerciseForm(name, onDone, existing) {
         <div><label class="field">Distanse</label>
           ${choice('distance', String(cfg.distance), [['true', 'Ja'], ['false', 'Nei']])}</div>
         <div data-show-dist ${cfg.distance ? '' : 'hidden'}><label class="field">Standard enhet for distanse</label>
-          ${choice('unit', cfg.unit, [['m', 'Meter'], ['km', 'Kilometer']])}
-          <p class="small muted" style="margin-top:4px">Kan byttes mellom meter og km på hver økt.</p></div>
+          ${choice('unit', cfg.unit, [['m', 'Meter'], ['km', 'Kilometer']])}</div>
         <div><label class="field">Hastighet vises som</label>
           ${choice('speed', cfg.speed, Object.entries(SPEED_TYPES))}</div>
         <div data-show-pace ${cfg.speed === 'kmh' ? '' : 'hidden'}><label class="field">Tempo i min/km (løping)</label>
-          ${choice('pace', String(cfg.pace), [['true', 'Ja'], ['false', 'Nei']])}
-          <p class="small muted" style="margin-top:4px">Viser og lar deg skrive inn tempo per km i tillegg til km/t.</p></div>
+          ${choice('pace', String(cfg.pace), [['true', 'Ja'], ['false', 'Nei']])}</div>
         <div><label class="field">Andre verdier å registrere</label>
           <div class="chips" style="margin-top:6px" data-multi="fields">
             ${Object.entries(CARDIO_FIELDS).map(([k, F]) => `<button type="button" class="chip" data-act="toggle-field" data-v="${k}" aria-pressed="${cfg.fields.includes(k)}">${F.name}</button>`).join('')}
           </div>
-          <input type="hidden" name="fields" value="${cfg.fields.join(',')}">
-          <p class="small muted" style="margin-top:4px">Tid og snittpuls er alltid med.</p></div>
+          <input type="hidden" name="fields" value="${cfg.fields.join(',')}"></div>
       </div>
 
       <label class="field">Kategori<select name="cat">${CATEGORIES.map((c) => `<option ${c === e.cat ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
@@ -1560,7 +1796,6 @@ function renderHistory() {
 
   if (mode === 'folders') {
     html += `<button class="btn ghost block" style="margin-top:12px" data-act="new-folder" data-ctx="history">+ Ny mappe</button>`;
-    if (!db.folders.length) html += `<p class="small muted" style="margin:10px 2px">Du har ingen mapper ennå. Lag en her, eller velg «+ Ny mappe» når du lagrer en økt.</p>`;
     html += '<div class="folder-list">';
     for (const f of sortedFolders()) {
       const list = ws.filter((w) => w.folderId === f.id);
@@ -1569,7 +1804,7 @@ function renderHistory() {
           <button class="btn ghost sm danger" data-act="delete-folder" data-id="${esc(f.id)}">Slett mappe</button>
         </div>
         ${list.length ? list.map((w) => workoutCard(w, { hideFolder: true })).join('') : '<p class="small muted" style="padding:6px 0 12px">Ingen økter i denne mappa ennå.</p>'}`;
-      html += folder('wf-' + f.id, f.name, list.length, body);
+      html += folder('wf-' + f.id, f.name, list.length, body, '📁');
     }
     const loose = ws.filter((w) => !folderById(w.folderId));
     if (loose.length) html += folder('wf-none', 'Uten mappe', loose.length, loose.map((w) => workoutCard(w)).join(''), '🗂️');
@@ -1653,7 +1888,7 @@ function renderStats(exId) {
     setHeader('Statistikk');
     let html = `<section class="card"><div class="chart-title">Økter per uke</div><div class="chart-sub">Siste 12 uker</div><div class="chart-wrap" id="week-chart"></div></section>`;
     if (!used.size) {
-      html += `<div class="empty"><p>Når du har logget noen økter, finner du fremgangen for hver øvelse her.</p></div>`;
+      html += `<div class="empty"><p>Ingen data ennå.</p></div>`;
     } else {
       html += `<h2 class="section-title">Velg øvelse</h2><section class="card" style="padding:4px 14px">`;
       const exs = [...used.keys()].map(exById).sort((a, b) => used.get(b.id) - used.get(a.id));
@@ -1810,6 +2045,13 @@ function drawLineChart(el, pts, metric) {
   attachHover(el, W, pts.map((p) => ({ x: X(p.t), y: Y(p.y), tip: p.tip })), true);
 }
 
+// En økt regnes som styrke eller kondisjon etter hva flest av øvelsene er (likt = styrke)
+function workoutKind(w) {
+  const cardio = w.entries.filter((e) => exById(e.exerciseId).kind === 'cardio').length;
+  return cardio > w.entries.length - cardio ? 'cardio' : 'strength';
+}
+
+// Økter per uke, stablet: styrke (nederst) og kondisjon (øverst) i samme søyle
 function drawWeekChart(el) {
   if (!el) return;
   const weeks = [];
@@ -1817,38 +2059,58 @@ function drawWeekChart(el) {
   for (let i = 11; i >= 0; i--) {
     const s = new Date(cur); s.setDate(s.getDate() - i * 7);
     const e = new Date(s); e.setDate(e.getDate() + 7);
-    const sIso = s.toISOString().slice(0, 10), eIso = e.toISOString().slice(0, 10);
-    const ws = db.workouts.filter((w) => w.date >= sIso && w.date < eIso);
-    const mins = ws.reduce((a, w) => a + (w.durationMin || 0), 0);
-    weeks.push({ s, n: ws.length, mins });
+    const ws = db.workouts.filter((w) => w.date >= isoDay(s) && w.date < isoDay(e));
+    const strength = ws.filter((w) => workoutKind(w) === 'strength').length;
+    weeks.push({ s, n: ws.length, strength, cardio: ws.length - strength, mins: ws.reduce((a, w) => a + (w.durationMin || 0), 0) });
   }
+  const totS = weeks.reduce((a, w) => a + w.strength, 0), totC = weeks.reduce((a, w) => a + w.cardio, 0);
+
   const W = Math.max(280, el.clientWidth), H = 170, m = { t: 12, r: 6, b: 24, l: 26 };
   const iw = W - m.l - m.r, ih = H - m.t - m.b;
   const maxN = Math.max(3, ...weeks.map((w) => w.n));
   const ticks = niceTicks(0, maxN, 3).filter((v) => Number.isInteger(v));
   const top = ticks[ticks.length - 1];
-  const slot = iw / weeks.length, bw = Math.max(6, slot - 2);
+  const slot = iw / weeks.length, bw = Math.max(6, slot - 4);
   const Y = (v) => m.t + ih - (v / top) * ih;
+  const GAP = 2; // flate mellom segmentene i samme søyle
 
-  const bar = (x, y, w, h) => {
+  // Rektangel med avrundede hjørner kun øverst (den øverste delen av søylen)
+  const seg = (cls, x, y, w, h, rounded) => {
     if (h <= 0) return '';
+    if (!rounded) return `<rect class="${cls}" x="${x}" y="${y}" width="${w}" height="${h}"/>`;
     const r = Math.min(4, w / 2, h);
-    return `<path class="bar" d="M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z"/>`;
+    return `<path class="${cls}" d="M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z"/>`;
   };
+  const bars = weeks.map((w, i) => {
+    const x = m.l + i * slot + (slot - bw) / 2;
+    const yS = Y(w.strength), hS = m.t + ih - yS;
+    const yT = Y(w.n), hC = yS - yT - (w.strength && w.cardio ? GAP : 0);
+    return seg('bar-strength', x, yS, bw, hS, !w.cardio) + seg('bar-cardio', x, yT, bw, hC, true);
+  }).join('');
 
-  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Antall økter per uke siste 12 uker">
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Antall styrke- og kondisjonsøkter per uke siste 12 uker">
     <g class="grid">${ticks.map((v) => `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(v)}" y2="${Y(v)}"/>`).join('')}</g>
     <g class="axis">${ticks.map((v) => `<text x="${m.l - 6}" y="${Y(v) + 4}" text-anchor="end">${v}</text>`).join('')}
       ${weeks.map((w, i) => (i % 2 === 1 || weeks.length < 8) ? `<text x="${m.l + i * slot + slot / 2}" y="${H - 6}" text-anchor="middle">${isoWeek(w.s)}</text>` : '').join('')}</g>
     <line class="crosshair" x1="0" x2="0" y1="${m.t}" y2="${m.t + ih}" style="display:none"/>
-    ${weeks.map((w, i) => bar(m.l + i * slot + 1, Y(w.n), bw, m.t + ih - Y(w.n))).join('')}
+    ${bars}
     <line class="baseline" x1="${m.l}" x2="${W - m.r}" y1="${m.t + ih}" y2="${m.t + ih}"/>
     <rect x="${m.l}" y="0" width="${iw}" height="${H}" fill="transparent" class="hit"/>
   </svg><div class="chart-tip"></div>`;
-  el.insertAdjacentHTML('beforeend', `<p class="small muted" style="margin-top:4px">Tallene under søylene er ukenummer.</p>`);
+
+  // Forklaring over diagrammet, og tabell som alternativ til fargene
+  el.insertAdjacentHTML('afterbegin', `<div class="legend">
+    <span><i class="sw sw-strength"></i>Styrke <b>${totS}</b></span>
+    <span><i class="sw sw-cardio"></i>Kondisjon <b>${totC}</b></span>
+  </div>`);
+  el.insertAdjacentHTML('beforeend', `
+    <details class="table-toggle"><summary>Vis som tabell</summary>
+      <table class="data"><thead><tr><th>Uke</th><th class="num">Styrke</th><th class="num">Kondisjon</th><th class="num">Totalt</th></tr></thead><tbody>
+      ${[...weeks].reverse().map((w) => `<tr><td>${isoWeek(w.s)}</td><td class="num">${w.strength}</td><td class="num">${w.cardio}</td><td class="num">${w.n}</td></tr>`).join('')}
+      </tbody></table></details>`);
   attachHover(el, W, weeks.map((w, i) => ({
     x: m.l + i * slot + slot / 2, y: Y(w.n),
-    tip: `<b>${w.n} ${w.n === 1 ? 'økt' : 'økter'}</b><br>Uke ${isoWeek(w.s)}${w.mins ? ` · ${w.mins} min` : ''}`,
+    tip: `<b>Uke ${isoWeek(w.s)}: ${w.n} ${w.n === 1 ? 'økt' : 'økter'}</b><br><i class="sw sw-strength"></i>${w.strength} styrke · <i class="sw sw-cardio"></i>${w.cardio} kondisjon${w.mins ? `<br>${w.mins} min totalt` : ''}`,
   })), false);
 }
 
@@ -1870,8 +2132,9 @@ function attachHover(wrap, W, items, showDot) {
     const tw = tip.offsetWidth, th = tip.offsetHeight;
     let left = px - tw / 2;
     left = Math.max(0, Math.min(left, r.width - tw));
-    let top = py - th - 12;
-    if (top < 0) top = py + 14;
+    const oy = svg.offsetTop; // grafen kan ligge under en forklaring
+    let top = oy + py - th - 12;
+    if (top < 0) top = oy + py + 14;
     tip.style.left = left + 'px';
     tip.style.top = top + 'px';
   };
@@ -1911,7 +2174,6 @@ function renderProfile() {
     <form class="stack" data-form="profile" onsubmit="return false">
       <section class="card stack">
         <h3>Om deg</h3>
-        <p class="small muted" style="margin-top:-4px">Alt er valgfritt og lagres bare på denne enheten.</p>
         <label class="field">Navn<input name="name" maxlength="40" value="${esc(p.name || '')}" placeholder="Hva vil du kalles?" autocomplete="given-name"></label>
         <div><label class="field">Kjønn</label>
           <div class="chips" style="margin-top:6px" data-choice="gender">
@@ -1921,13 +2183,11 @@ function renderProfile() {
         </div>
         <div class="cardio-grid" style="margin-top:0">
           <label class="field">Alder (år)<input name="age" inputmode="numeric" value="${inputVal(p.age)}" placeholder="–"></label>
-          <label class="field">Vekt (kg)<input name="weightKg" inputmode="decimal" value="${inputVal(p.weightKg)}" placeholder="–"></label>
         </div>
       </section>
 
       <section class="card stack">
         <h3>Ukemål</h3>
-        <p class="small muted" style="margin-top:-4px">Hvor mange økter vil du ha i uka? Fremdriften vises på hjem-skjermen. Uka starter mandag.</p>
         <div class="iv-stepper" style="margin-top:0">
           <span>Økter per uke</span>
           <div class="stepper">
@@ -1950,18 +2210,11 @@ function renderMore() {
     <section class="card" style="padding:4px 14px">
       <a class="ex-option" style="text-decoration:none;color:inherit" href="#/profil"><span>Profil</span><span class="kind">${esc(profileSummary())} ›</span></a>
       <a class="ex-option" style="text-decoration:none;color:inherit" href="#/ovelser"><span>Øvelser</span><span class="kind">${db.exercises.filter((e) => !e.hidden).length} ›</span></a>
-    </section>
-
-    <h2 class="section-title">Utseende</h2>
-    <section class="card">
-      <div class="style-picker" role="group" aria-label="Utseende">
-        ${STYLES.map(([v, l]) => `<button type="button" class="style-option" data-act="set-style" data-v="${v}" aria-pressed="${(document.documentElement.dataset.style || 'gradient') === v}"><span class="style-swatch sw-${v}"><i></i><i></i><b></b></span>${l}</button>`).join('')}
-      </div>
+      <a class="ex-option" style="text-decoration:none;color:inherit" href="#/utseende"><span>Utseende</span><span class="kind">${esc(themeName())} ›</span></a>
     </section>
 
     <h2 class="section-title">Sikkerhetskopi</h2>
     <section class="card stack">
-      <p class="small">Alle data lagres kun på denne enheten. Ta en sikkerhetskopi jevnlig, og før du bytter telefon.</p>
       <button class="btn primary block" data-act="export">Eksporter data (.json)</button>
       <label class="btn ghost block" style="cursor:pointer">Importer fra fil
         <input type="file" accept="application/json,.json" data-import hidden></label>
@@ -1973,7 +2226,7 @@ function renderMore() {
 
     <h2 class="section-title">Faresone</h2>
     <section class="card"><button class="btn danger block" data-act="wipe">Slett alle data</button></section>
-    <p class="small muted" style="text-align:center;margin-top:18px">Treningsloggen · versjon 2.4</p>`;
+    <p class="small muted" style="text-align:center;margin-top:18px">Treningsloggen · versjon 2.5</p>`;
 }
 
 function renderExercises() {
@@ -2018,7 +2271,6 @@ function openCsvExport() {
   const p = csvPresets();
   openSheet(`<h2>Eksporter som regneark</h2>
     <form class="stack" data-form="csv" onsubmit="return false">
-      <p class="small muted">Velg hvilken periode som skal være med. Øktene fra og med «Fra» til og med «Til» tas med.</p>
       <div class="chips">${Object.entries(p).map(([k, [l]]) => `<button type="button" class="chip" data-act="csv-range" data-v="${k}" aria-pressed="${k === 'all'}">${l}</button>`).join('')}</div>
       <div class="cardio-grid" style="margin-top:0">
         <label class="field">Fra<input type="date" name="from" value="${p.all[1]}" max="${todayISO()}"></label>
@@ -2128,6 +2380,7 @@ function importData(file) {
       const exIds = new Set(db.exercises.map((e) => e.id));
       for (const e of d.exercises) if (!exIds.has(e.id)) db.exercises.push(e);
       for (const f of d.folders || []) if (!folderById(f.id)) db.folders.push(f);
+      for (const t of d.templates || []) if (!templateById(t.id)) db.templates.push(t);
       if (d.profile && !Object.values(db.profile || {}).some(Boolean)) db.profile = d.profile;
       const wIds = new Map(db.workouts.map((w, i) => [w.id, i]));
       let added = 0;
@@ -2151,12 +2404,79 @@ function importData(file) {
 const actions = {
   'start-workout': () => {
     if (db.draft) { goToEditor(); return; }
-    startWorkout();
+    openStartChooser();
   },
-  'add-ex': openExercisePicker,
+  'start-blank': () => { closeSheet(); startWorkout(); },
+  'fav-start': (el) => startFromTemplate(el.dataset.id),
+  'fav-menu': (el) => {
+    const t = templateById(el.dataset.id);
+    if (!t) return;
+    openSheet(`<h2>${esc(t.name)}</h2><div class="menu-list">
+      <button data-act="fav-start" data-id="${esc(t.id)}">Start økt</button>
+      <button data-act="tpl-edit" data-id="${esc(t.id)}">Endre navn og øvelser</button>
+      <button class="danger" data-act="tpl-delete" data-id="${esc(t.id)}">Slett favorittøkt</button>
+    </div>`);
+  },
+  'tpl-new': () => {
+    tplDraft = { name: '', exerciseIds: [] };
+    closeSheet();
+    if (location.hash === '#/favoritt/ny') route(); else location.hash = '#/favoritt/ny';
+  },
+  'tpl-edit': (el) => { tplDraft = null; location.hash = `#/favoritt/${encodeURIComponent(el.dataset.id)}`; },
+  'tpl-add': () => openExercisePicker(false, 'template'),
+  'tpl-move': (el) => {
+    const a = tplDraft.exerciseIds, i = +el.dataset.i, j = i + +el.dataset.d;
+    [a[i], a[j]] = [a[j], a[i]];
+    renderTemplateEditor(tplDraft.id || 'ny');
+  },
+  'tpl-remove': (el) => {
+    tplDraft.exerciseIds.splice(+el.dataset.i, 1);
+    renderTemplateEditor(tplDraft.id || 'ny');
+  },
+  'tpl-save': () => {
+    const t = tplDraft;
+    t.name = (t.name || '').trim();
+    if (!t.name) { toast('Gi favorittøkta et navn'); $('[data-tpl-name]')?.focus(); return; }
+    if (!t.exerciseIds.length) { toast('Legg til minst én øvelse'); return; }
+    if (db.templates.some((x) => x.name.toLowerCase() === t.name.toLowerCase() && x.id !== t.id)) { toast('Du har allerede en favorittøkt med det navnet'); return; }
+    if (t.id) Object.assign(templateById(t.id), { name: t.name, exerciseIds: [...t.exerciseIds], updatedAt: Date.now() });
+    else db.templates.push({ id: 't-' + uid(), name: t.name, exerciseIds: [...t.exerciseIds], createdAt: Date.now() });
+    save();
+    tplDraft = null;
+    location.hash = '#/';
+    toast(`Favorittøkta «${t.name}» er lagret ⭐`);
+  },
+  'tpl-delete': async (el) => {
+    const t = templateById(el.dataset.id || tplDraft?.id);
+    if (!t) return;
+    if (!(await askConfirm('Øktene du allerede har registrert, blir ikke påvirket.', { title: `Slette «${t.name}»?`, ok: 'Slett', danger: true }))) return;
+    db.templates = db.templates.filter((x) => x.id !== t.id);
+    save();
+    tplDraft = null;
+    if (location.hash.startsWith('#/favoritt')) location.hash = '#/'; else route();
+    toast(`«${t.name}» er slettet`);
+  },
+  'save-as-template': (el) => {
+    const w = db.workouts.find((x) => x.id === el.dataset.id);
+    if (!w) return;
+    tplDraft = { name: '', exerciseIds: [...new Set(w.entries.map((e) => e.exerciseId))] };
+    closeSheet();
+    location.hash = '#/favoritt/ny';
+    toast('Gi favorittøkta et navn og lagre');
+  },
+  'add-ex': () => openExercisePicker(false, 'draft'),
   'close-sheet': closeSheet,
-  'pick-ex': (el) => addExerciseToDraft(el.dataset.id),
-  'new-ex': (el) => openNewExerciseForm(el.dataset.name, 'draft'),
+  'pick-ex': (el) => togglePick(el.dataset.id),
+  'picker-add': () => {
+    if (pickerTarget === 'template' && tplDraft) {
+      tplDraft.exerciseIds.push(...pickerSel.filter((id) => !tplDraft.exerciseIds.includes(id)));
+      closeSheet();
+      renderTemplateEditor(tplDraft.id || 'ny');
+      return;
+    }
+    addExercisesToDraft([...pickerSel]);
+  },
+  'new-ex': (el) => openNewExerciseForm(el.dataset.name, 'picker'),
   'new-ex-settings': () => openNewExerciseForm('', 'settings'),
   choice: (el) => {
     const form = el.closest('form');
@@ -2393,12 +2713,28 @@ const actions = {
         <button data-act="edit-workout" data-id="${esc(w.id)}">Rediger</button>
         <button data-act="repeat-workout" data-id="${esc(w.id)}">Gjenta økt</button>
         <button data-act="move-workout" data-id="${esc(w.id)}">Flytt til mappe${folderById(w.folderId) ? ` (nå: ${esc(folderById(w.folderId).name)})` : ''}</button>
+        <button data-act="save-as-template" data-id="${esc(w.id)}">⭐ Lagre som favorittøkt</button>
         <button class="danger" data-act="delete-workout" data-id="${esc(w.id)}">Slett økt</button>
       </div>`);
   },
-  'set-style': (el) => {
-    setStyle(el.dataset.v);
-    el.parentElement.querySelectorAll('[data-act="set-style"]').forEach((b) => b.setAttribute('aria-pressed', b === el));
+  'set-theme': (el) => {
+    setTheme(el.dataset.v);
+    el.parentElement.querySelectorAll('[data-act="set-theme"]').forEach((b) => b.setAttribute('aria-pressed', b === el));
+  },
+  'dur-mode': (el) => {
+    db.draft.durationMode = el.dataset.v;
+    save();
+    const block = el.closest('.card');
+    renderEditor();
+    block && document.querySelector('[data-act="dur-mode"]')?.scrollIntoView({ block: 'center' });
+  },
+  'timer-reset': async () => {
+    if (!(await askConfirm('Tidtakeren starter på 0 igjen fra nå.', { title: 'Start tidtakeren på nytt?', ok: 'Start på nytt' }))) return;
+    db.draft.startedAt = Date.now();
+    save();
+    renderEditor();
+    document.querySelector('[data-act="dur-mode"]')?.scrollIntoView({ block: 'center' });
+    updateTimers();
   },
   'goal-step': (el) => {
     const form = el.closest('form');
@@ -2408,15 +2744,13 @@ const actions = {
   },
   'save-profile': (el) => {
     const f = el.closest('form').elements;
-    const age = num(f.age.value), weight = num(f.weightKg.value);
+    const age = num(f.age.value);
     if (age != null && (age < 5 || age > 120)) { toast('Sjekk alderen – den ser ikke riktig ut'); return; }
-    if (weight != null && (weight < 20 || weight > 400)) { toast('Sjekk vekten – den ser ikke riktig ut'); return; }
     db.profile = {
       ...db.profile,
       name: f.name.value.trim(),
       gender: f.gender.value,
       age: age != null ? Math.round(age) : null,
-      weightKg: weight,
       weeklyGoal: +f.weeklyGoal.value || null,
       updatedAt: Date.now(),
     };
@@ -2523,6 +2857,7 @@ document.addEventListener('click', (ev) => {
 document.addEventListener('input', (ev) => {
   const t = ev.target;
   if (t.matches('[data-search]')) { renderPickerList(t.value); return; }
+  if (t.matches('[data-tpl-name]')) { if (tplDraft) tplDraft.name = t.value; return; }
   const d = db.draft;
   if (!d) return;
   if (t.dataset.w) {
@@ -2613,7 +2948,12 @@ document.addEventListener('submit', (ev) => {
   Object.assign(ex, formExerciseProps(form, ex.kind));
   db.exercises.push(ex);
   save();
-  if (form.dataset.then === 'draft' && db.draft) addExerciseToDraft(ex.id);
+  if (form.dataset.then === 'picker') {
+    // Ny øvelse fra velgeren: marker den som valgt og gå tilbake til velgeren
+    if (!pickerSel.includes(ex.id)) pickerSel.push(ex.id);
+    openExercisePicker(true);
+    toast(`«${ex.name}» er laget og valgt`);
+  }
   else { closeSheet(); renderExercises(); }
 });
 

@@ -1,5 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#151515"/>
+  <!-- Bytter bakgrunn med telefonens/maskinens tema der nettleseren støtter det -->
+  <style>.bg { fill: #151515; } @media (prefers-color-scheme: light) { .bg { fill: #ffffff; } }</style>
+  <rect class="bg" width="512" height="512" rx="112"/>
   <g fill="#ff6b1a">
     <rect x="96" y="176" width="40" height="160" rx="14"/>
     <rect x="144" y="146" width="48" height="220" rx="16"/>

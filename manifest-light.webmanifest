@@ -1,0 +1,18 @@
+{
+  "name": "Treningsloggen",
+  "short_name": "Treningsloggen",
+  "description": "Registrer styrke- og kondisjonsøkter på treningssenteret og følg fremgangen din.",
+  "lang": "no",
+  "start_url": "./#/",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#151515",
+  "theme_color": "#151515",
+  "icons": [
+    { "src": "icons/icon-light-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-light-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-light-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

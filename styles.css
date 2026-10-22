@@ -1,39 +1,136 @@
-/* Fargetema: mørkt med oransje aksent */
+/* =========================================================
+   Fargetemaer. Alle farger i appen kommer fra disse tokens.
+   html[data-theme="orange" (standard) | "blue" | "mint"]
+   *-rgb-tokens brukes som rgb(var(--x-rgb) / alfa) for gjennomsiktige varianter.
+   ========================================================= */
 :root {
-  --bg: #151515;          /* bakgrunn */
-  --surface: #232323;     /* kort */
-  --surface-2: #2e2e2e;   /* felt og knapper inne i kort */
-  --text: #f1eee8;        /* tekst */
-  --text-2: #a6a29a;      /* sekundær */
-  --muted: #8c8880;
-  --border: #333232;
-  --grid: #2c2c2c;
-  --accent: #ff6b1a;      /* aksent */
-  --accent-ink: #151515;
-  --accent-soft: #3a2518;
-  --danger: #ff5d5d;
-  --gold: #ffc24a;
-  --gold-soft: #3a3018;
   --radius: 18px;
   --shadow: none;
   --tabbar-h: 64px;
   --tabbar-gap: 12px;
-  /* Glass */
+  --card-blur: none;
+}
+
+/* Oransje (standard): mørkt med varm oransje aksent */
+:root, html[data-theme="orange"] {
+  --bg: #151515;
+  --surface: #232323;
+  --surface-2: #2e2e2e;
+  --text: #f1eee8;
+  --text-2: #a6a29a;
+  --muted: #8c8880;
+  --border: #333232;
+  --grid: #2c2c2c;
+  --accent: #ff6b1a;
+  --accent-rgb: 255 107 26;
+  --accent2-rgb: 255 140 70;   /* lysere variant av aksenten (kanter, glød) */
+  --accent-ink: #151515;       /* tekst på aksentfarge */
+  --accent-soft: #3a2518;
+  --tint-rgb: 255 255 255;     /* svake nyanser og kanter oppå kort */
+  --danger: #ff5d5d;
+  --danger-rgb: 255 93 93;
+  --gold: #ffc24a;
+  --gold-rgb: 255 194 74;
+  --gold-soft: #3a3018;
   --glass-bg: rgba(36, 36, 36, .58);
   --glass-border: rgba(255, 255, 255, .10);
   --glass-hi: rgba(255, 255, 255, .16);
-  /* Kort og bakgrunn – overstyres av stilvalget nederst */
-  --card-bg: var(--surface);
-  --card-border: rgba(255, 255, 255, .06);
-  --card-shadow: none;
-  --card-blur: none;
-  --ambient: none;
+  --sheet-bg: rgba(32, 31, 30, .86);
+  --card-bg: linear-gradient(180deg, #2a2a2a, #1f1f1f);
+  --card-border: rgba(255, 255, 255, .07);
+  --card-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 8px 22px rgba(0, 0, 0, .35);
+  --ambient: radial-gradient(80% 40% at 50% -10%, rgb(var(--accent-rgb) / .14), transparent 70%);
+  --primary-grad: linear-gradient(180deg, #ff8538 0%, #ff6b1a 55%, #f25c0c 100%);
+  --shadow-float: 0 14px 34px rgba(0, 0, 0, .55), 0 2px 6px rgba(0, 0, 0, .35);
+  --shadow-sheet: 0 -10px 40px rgba(0, 0, 0, .5);
+  --backdrop: rgba(0, 0, 0, .6);
+  --series-strength: #ec6100;  /* validert mot kortflaten: CVD ΔE 27,5 */
+  --series-cardio: #3d96ea;
+  color-scheme: dark;
+}
+
+/* Lys blå: lyst og rent med blå aksent */
+html[data-theme="blue"] {
+  --bg: #f6f8fc;
+  --surface: #ffffff;
+  --surface-2: #eef2f8;
+  --text: #111827;
+  --text-2: #4b5563;
+  --muted: #6b7280;   /* grå */
+  --border: #e5e7eb;
+  --grid: #edf0f5;
+  --accent: #2563eb;
+  --accent-rgb: 37 99 235;
+  --accent2-rgb: 96 165 250;   /* highlight #60a5fa */
+  --accent-ink: #ffffff;
+  --accent-soft: #dbeafe;
+  --tint-rgb: 17 24 39;
+  --danger: #dc2626;
+  --danger-rgb: 220 38 38;
+  --gold: #b45309;
+  --gold-rgb: 217 119 6;
+  --gold-soft: #fef3c7;
+  --glass-bg: rgba(255, 255, 255, .74);
+  --glass-border: rgba(17, 24, 39, .08);
+  --glass-hi: rgba(255, 255, 255, .9);
+  --sheet-bg: rgba(255, 255, 255, .94);
+  --card-bg: linear-gradient(180deg, #ffffff, #fbfcfe);
+  --card-border: rgba(17, 24, 39, .07);
+  --card-shadow: 0 1px 2px rgba(17, 24, 39, .05), 0 6px 18px rgba(17, 24, 39, .06);
+  --ambient: radial-gradient(80% 40% at 50% -10%, rgba(37, 99, 235, .10), transparent 70%);
+  --primary-grad: linear-gradient(180deg, #3b82f6 0%, #2563eb 55%, #1d4ed8 100%);
+  --shadow-float: 0 10px 30px rgba(17, 24, 39, .14), 0 2px 6px rgba(17, 24, 39, .08);
+  --shadow-sheet: 0 -8px 30px rgba(17, 24, 39, .12);
+  --backdrop: rgba(17, 24, 39, .35);
+  --series-strength: #2563eb;  /* validert mot hvit: CVD ΔE 31 */
+  --series-cardio: #ea580c;
+  color-scheme: light;
+}
+
+/* Mint: mørk skoggrønn med friskt mintgrønn aksent */
+html[data-theme="mint"] {
+  --bg: #0d1714;
+  --surface: #18221f;
+  --surface-2: #22302b;
+  --text: #f3f1e8;
+  --text-2: #78918a;
+  --muted: #7a928b;
+  --border: #25332e;
+  --grid: #1f2b27;
+  --accent: #62e6b5;
+  --accent-rgb: 98 230 181;
+  --accent2-rgb: 140 240 203;
+  --accent-ink: #0d1714;
+  --accent-soft: #173a30;
+  --tint-rgb: 255 255 255;
+  --danger: #ff6b6b;
+  --danger-rgb: 255 107 107;
+  --gold: #ffc24a;
+  --gold-rgb: 255 194 74;
+  --gold-soft: #33301a;
+  --glass-bg: rgba(24, 34, 31, .62);
+  --glass-border: rgba(255, 255, 255, .09);
+  --glass-hi: rgba(255, 255, 255, .14);
+  --sheet-bg: rgba(22, 32, 29, .88);
+  --card-bg: linear-gradient(180deg, #1c2824, #151f1c);
+  --card-border: rgba(255, 255, 255, .07);
+  --card-shadow: inset 0 1px 0 rgba(255, 255, 255, .05), 0 8px 22px rgba(0, 0, 0, .35);
+  --ambient: radial-gradient(80% 40% at 50% -10%, rgba(98, 230, 181, .12), transparent 70%);
+  --primary-grad: linear-gradient(180deg, #8af0c9 0%, #62e6b5 55%, #3fd39d 100%);
+  --shadow-float: 0 14px 34px rgba(0, 0, 0, .55), 0 2px 6px rgba(0, 0, 0, .35);
+  --shadow-sheet: 0 -10px 40px rgba(0, 0, 0, .5);
+  --backdrop: rgba(0, 0, 0, .6);
+  --series-strength: #00ac7c;  /* validert mot kortflaten: CVD ΔE 18,7 */
+  --series-cardio: #7679de;
   color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; }
-html { overflow-x: hidden; }
+/* clip (ikke hidden): hindrer sidelengs scrolling uten å gjøre html til eget scrollområde,
+   noe som på iPhone kan få faste elementer (menyen) til å flyte med ved scrolling.
+   manipulation: slår av dobbelttrykk-zoom, som også forskyver faste elementer. */
+html { overflow-x: clip; touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body {
   background: var(--bg);
   color: var(--text);
@@ -85,7 +182,7 @@ main {
 
 /* ---------- Svevende glass-meny ---------- */
 .tabbar {
-  position: fixed; z-index: 20; left: 50%; transform: translateX(-50%);
+  position: fixed; z-index: 20; left: 0; right: 0; margin: 0 auto; /* uten transform – mer stabil på iOS */
   bottom: calc(env(safe-area-inset-bottom) + var(--tabbar-gap));
   width: min(calc(100% - 28px), 440px); height: var(--tabbar-h);
   display: grid; grid-template-columns: repeat(5, 1fr); padding: 6px;
@@ -93,7 +190,7 @@ main {
   background: var(--glass-bg);
   backdrop-filter: blur(24px) saturate(190%); -webkit-backdrop-filter: blur(24px) saturate(190%);
   border: 1px solid var(--glass-border);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, .55), 0 2px 6px rgba(0, 0, 0, .35),
+  box-shadow: var(--shadow-float),
     inset 0 1px 0 var(--glass-hi), inset 0 -10px 18px rgba(0, 0, 0, .18);
 }
 /* Lysrefleks øverst på glasset */
@@ -105,9 +202,9 @@ main {
 .tab-indicator {
   position: absolute; top: 6px; bottom: 6px; left: 6px; width: calc((100% - 12px) / 5);
   border-radius: 999px;
-  background: radial-gradient(120% 140% at 50% 0%, rgba(255, 140, 70, .30), rgba(255, 107, 26, .14));
-  border: 1px solid rgba(255, 140, 70, .30);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14), 0 4px 14px rgba(255, 107, 26, .18);
+  background: radial-gradient(120% 140% at 50% 0%, rgb(var(--accent2-rgb) / .30), rgb(var(--accent-rgb) / .14));
+  border: 1px solid rgb(var(--accent2-rgb) / .30);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14), 0 4px 14px rgb(var(--accent-rgb) / .18);
   transition: transform .5s cubic-bezier(.3, 1.35, .45, 1);
 }
 .tabbar a {
@@ -236,7 +333,7 @@ textarea { min-height: 84px; resize: vertical; }
 /* ---------- Sheet ---------- */
 #sheet-root { position: fixed; inset: 0; z-index: 50; pointer-events: none; }
 #sheet-root.open { pointer-events: auto; }
-.sheet-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.6); animation: fade .15s ease-out; }
+.sheet-backdrop { position: absolute; inset: 0; background: var(--backdrop); animation: fade .15s ease-out; }
 .sheet {
   position: absolute; left: 0; right: 0; bottom: var(--kb, 0px); max-width: 640px; margin: 0 auto;
   max-height: min(88dvh, calc(var(--vvh, 100dvh) - env(safe-area-inset-top) - 16px)); display: flex; flex-direction: column;
@@ -373,7 +470,7 @@ details.table-toggle summary { cursor: pointer; font-size: 14px; font-weight: 65
 .goal-count { font-size: 15px; color: var(--text-2); margin-top: 4px; }
 .goal-count b { font-size: 34px; font-weight: 800; color: var(--text); letter-spacing: -.02em; margin-right: 2px; font-variant-numeric: tabular-nums; }
 .goal-track { position: relative; height: 14px; margin: 10px 0 12px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
-.goal-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #ff8a3d, var(--accent)); transition: width .6s cubic-bezier(.2, .8, .2, 1); }
+.goal-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, rgb(var(--accent2-rgb)), var(--accent)); transition: width .6s cubic-bezier(.2, .8, .2, 1); }
 .goal-tick { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--surface); }
 .goal-msg { font-weight: 650; margin-bottom: 6px; }
 .goal-done { border-color: var(--accent); }
@@ -381,111 +478,70 @@ details.table-toggle summary { cursor: pointer; font-size: 14px; font-weight: 65
 .goal-streak { color: var(--accent); font-weight: 700; }
 
 /* =========================================================
-   Utseende – tre stiler som kan velges under Mer → Utseende
-   html[data-style="glass" | "gradient" | "flat"]
+   Felles utseende (Gradient – fast stil). Fargene kommer fra temaet.
    ========================================================= */
-
-/* Felles: kort, fliser og mapper bruker stil-tokens */
 .card, .tile, .folder {
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   box-shadow: var(--card-shadow);
-  backdrop-filter: var(--card-blur); -webkit-backdrop-filter: var(--card-blur);
 }
 .tile { border-radius: var(--radius); }
 .folder { border-radius: 16px; }
 .section-title { margin-top: 26px; }
 
-/* Hovedknapp med varm glød */
+/* Hovedknapp med glød i aksentfargen */
 .btn.primary {
-  background: linear-gradient(180deg, #ff8538 0%, #ff6b1a 55%, #f25c0c 100%);
-  box-shadow: 0 10px 24px rgba(255, 107, 26, .30), inset 0 1px 0 rgba(255, 255, 255, .28);
+  background: var(--primary-grad);
+  box-shadow: 0 10px 24px rgb(var(--accent-rgb) / .30), inset 0 1px 0 rgba(255, 255, 255, .28);
 }
 .btn.big { border-radius: 16px; }
-.btn.ghost, .btn.danger { background: rgba(255, 255, 255, .03); border-color: var(--card-border); }
+.btn.ghost, .btn.danger { background: rgb(var(--tint-rgb) / .03); border-color: var(--card-border); }
 
 /* Ukemål som «hero»-kort */
 .goal-card:not(.goal-empty) {
   position: relative; overflow: hidden; padding: 18px;
   background:
-    radial-gradient(130% 120% at 100% 0%, rgba(255, 107, 26, .20), transparent 55%),
+    radial-gradient(130% 120% at 100% 0%, rgb(var(--accent-rgb) / .20), transparent 55%),
     var(--card-bg);
 }
-.goal-track { height: 12px; background: rgba(255, 255, 255, .07); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .4); }
-.goal-fill { box-shadow: 0 0 14px rgba(255, 107, 26, .55); }
-.goal-tick { background: rgba(21, 21, 21, .85); }
+.goal-track { height: 12px; background: rgb(var(--tint-rgb) / .07); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .25); }
+.goal-fill { box-shadow: 0 0 14px rgb(var(--accent-rgb) / .55); }
+.goal-tick { background: var(--surface); }
 
 .tile .v { font-size: 28px; }
 .tile .l { text-transform: uppercase; letter-spacing: .05em; font-size: 11px; }
 
-/* Glass: gjennomskinnelige kort over varm glød */
-html[data-style="glass"] {
-  --ambient:
-    radial-gradient(70% 45% at 10% -5%, rgba(255, 107, 26, .26), transparent 70%),
-    radial-gradient(60% 40% at 100% 35%, rgba(255, 150, 70, .10), transparent 70%),
-    radial-gradient(70% 40% at 20% 100%, rgba(255, 107, 26, .10), transparent 70%);
-  --card-bg: linear-gradient(180deg, rgba(48, 46, 44, .62), rgba(34, 33, 32, .58));
-  --card-border: rgba(255, 255, 255, .09);
-  --card-shadow: inset 0 1px 0 rgba(255, 255, 255, .07), 0 10px 30px rgba(0, 0, 0, .28);
-  --card-blur: blur(18px) saturate(160%);
-}
-
-/* Gradient (standard): solide kort med dybde og diskret glød */
-:root, html[data-style="gradient"] {
-  --ambient: radial-gradient(80% 40% at 50% -10%, rgba(255, 107, 26, .14), transparent 70%);
-  --card-bg: linear-gradient(180deg, #2a2a2a, #1f1f1f);
-  --card-border: rgba(255, 255, 255, .07);
-  --card-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 8px 22px rgba(0, 0, 0, .35);
-  --card-blur: none;
-}
-
-/* Flat: rent og minimalistisk */
-html[data-style="flat"] {
-  --ambient: none;
-  --card-bg: var(--surface);
-  --card-border: transparent;
-  --card-shadow: none;
-  --card-blur: none;
-}
-html[data-style="flat"] .btn.primary { background: var(--accent); box-shadow: none; }
-html[data-style="flat"] .goal-card:not(.goal-empty) { background: var(--surface); }
-
-/* Forhåndsvisning i Utseende-valget */
-.style-picker { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.style-option {
+/* Velg fargetema (Mer → Utseende) */
+.theme-picker { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.theme-option {
   display: flex; flex-direction: column; gap: 8px; padding: 8px; border-radius: 16px; cursor: pointer;
-  border: 1.5px solid var(--card-border); background: rgba(255, 255, 255, .02); color: var(--text-2);
+  border: 1.5px solid var(--card-border); background: rgb(var(--tint-rgb) / .02); color: var(--text-2);
   font-size: 13px; font-weight: 650; text-align: center;
 }
-.style-option[aria-pressed="true"] { border-color: var(--accent); color: var(--text); }
-.style-swatch { position: relative; height: 92px; border-radius: 11px; overflow: hidden; background: #151515; }
-.style-swatch i { position: absolute; left: 8px; right: 8px; height: 22px; border-radius: 7px; }
-.style-swatch i:nth-child(1) { top: 10px; }
-.style-swatch i:nth-child(2) { top: 38px; }
-.style-swatch b { position: absolute; left: 14px; right: 14px; bottom: 7px; height: 16px; border-radius: 999px;
-  background: rgba(60, 60, 60, .7); border: 1px solid rgba(255, 255, 255, .14); }
-.sw-glass { background: radial-gradient(90% 60% at 10% 0%, rgba(255, 107, 26, .45), transparent 70%), #151515; }
-.sw-glass i { background: rgba(70, 66, 62, .55); border: 1px solid rgba(255, 255, 255, .12); }
-.sw-gradient { background: radial-gradient(90% 50% at 50% -10%, rgba(255, 107, 26, .25), transparent 70%), #151515; }
-.sw-gradient i { background: linear-gradient(180deg, #2c2c2c, #1e1e1e); border: 1px solid rgba(255, 255, 255, .08); }
-.sw-flat i { background: #232323; }
+.theme-option[aria-pressed="true"] { border-color: var(--accent); color: var(--text); }
+/* Forhåndsvisningen bruker temaets egne farger (satt inline fra app.js) */
+.theme-swatch { position: relative; height: 96px; border-radius: 11px; overflow: hidden; background: var(--p-bg); border: 1px solid rgb(var(--tint-rgb) / .08); }
+.theme-swatch i { position: absolute; left: 8px; right: 8px; height: 24px; border-radius: 7px; background: var(--p-card); }
+.theme-swatch i:nth-child(1) { top: 9px; }
+.theme-swatch i:nth-child(2) { top: 39px; }
+.theme-swatch i::before { content: ""; position: absolute; left: 7px; top: 8px; width: 38%; height: 4px; border-radius: 2px; background: var(--p-text); opacity: .8; }
+.theme-swatch b { position: absolute; left: 14px; right: 14px; bottom: 8px; height: 16px; border-radius: 999px; background: var(--p-accent); }
 
-/* Fremhevede kort beholder aksenten over stilvalget */
+/* Fremhevede kort */
 .card.active-banner {
-  background: radial-gradient(120% 140% at 0% 0%, rgba(255, 107, 26, .30), rgba(255, 107, 26, .10));
-  border-color: rgba(255, 140, 70, .35);
+  background: radial-gradient(120% 140% at 0% 0%, rgb(var(--accent-rgb) / .30), rgb(var(--accent-rgb) / .10));
+  border-color: rgb(var(--accent2-rgb) / .35);
 }
-.card.goal-done { border-color: rgba(255, 140, 70, .55); }
-.card.goal-empty { border-style: dashed; border-color: rgba(255, 140, 70, .35); }
+.card.goal-done { border-color: rgb(var(--accent2-rgb) / .55); }
+.card.goal-empty { border-style: dashed; border-color: rgb(var(--accent2-rgb) / .35); }
 
 /* Bunnark i glass */
 .sheet {
-  background: rgba(32, 31, 30, .86);
+  background: var(--sheet-bg);
   backdrop-filter: blur(28px) saturate(180%); -webkit-backdrop-filter: blur(28px) saturate(180%);
   border: 1px solid var(--glass-border); border-bottom: 0;
-  box-shadow: 0 -10px 40px rgba(0, 0, 0, .5), inset 0 1px 0 var(--glass-hi);
+  box-shadow: var(--shadow-sheet), inset 0 1px 0 var(--glass-hi);
 }
-html[data-style="flat"] .sheet { background: var(--surface); backdrop-filter: none; -webkit-backdrop-filter: none; }
 
 /* =========================================================
    Introskjerm (ca. 3 sek): logoen faller ned, spretter og lander
@@ -493,20 +549,19 @@ html[data-style="flat"] .sheet { background: var(--surface); backdrop-filter: no
 #splash {
   position: fixed; inset: 0; z-index: 100;
   display: grid; place-items: center;
-  background: radial-gradient(60% 40% at 50% 45%, rgba(255, 107, 26, .16), transparent 70%), #151515;
+  background: radial-gradient(60% 40% at 50% 45%, rgb(var(--accent-rgb) / .16), transparent 70%), var(--bg);
   animation: splash-out .35s ease-in 2.65s forwards;
 }
 .splash-stage { display: flex; flex-direction: column; align-items: center; transform: translateY(-4vh); }
 .splash-logo {
-  border-radius: 23%;
-  filter: drop-shadow(0 12px 28px rgba(255, 107, 26, .28));
+  filter: drop-shadow(0 10px 24px rgb(var(--accent-rgb) / .35));
   animation: splash-drop 1.1s cubic-bezier(.45, 0, .55, 1) both;
   transform-origin: 50% 100%;
 }
 .splash-logo svg { display: block; }
 /* Skygge på «gulvet» som vokser når logoen nærmer seg */
 .splash-shadow {
-  width: 78px; height: 10px; margin-top: 10px; border-radius: 50%;
+  width: 104px; height: 10px; margin-top: 12px; border-radius: 50%;
   background: radial-gradient(closest-side, rgba(0, 0, 0, .65), transparent);
   animation: splash-shadow 1.1s cubic-bezier(.45, 0, .55, 1) both;
 }
@@ -552,7 +607,148 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(.8); opac
 /* Notat fra forrige gang på en øvelse */
 .last-note {
   margin-top: 8px; padding: 9px 12px; border-radius: 12px;
-  background: rgba(255, 194, 74, .09); border: 1px solid rgba(255, 194, 74, .28);
+  background: rgb(var(--gold-rgb) / .09); border: 1px solid rgb(var(--gold-rgb) / .28);
   font-size: 14px; line-height: 1.4; white-space: pre-wrap;
 }
 .last-note-label { display: block; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--gold); margin-bottom: 2px; }
+
+/* ---------- Flervalg i øvelsesvelgeren ---------- */
+.ex-option.pick { justify-content: flex-start; gap: 12px; }
+.ex-option.pick .pick-name { flex: 1; }
+.pick-check {
+  flex: none; width: 24px; height: 24px; border-radius: 50%;
+  border: 2px solid rgb(var(--tint-rgb) / .22); display: grid; place-items: center;
+  transition: background .15s, border-color .15s;
+}
+.ex-option.pick[aria-pressed="true"] .pick-check { background: var(--accent); border-color: var(--accent); }
+.ex-option.pick[aria-pressed="true"] .pick-check::after {
+  content: ""; width: 6px; height: 11px; margin-top: -2px;
+  border: solid var(--accent-ink); border-width: 0 2.5px 2.5px 0; transform: rotate(45deg);
+}
+.ex-option.pick[aria-pressed="true"] .pick-name { color: var(--text); font-weight: 650; }
+.picker-footer { flex: none; padding-top: 10px; margin: 0 -16px; padding-left: 16px; padding-right: 16px; border-top: 1px solid var(--card-border); }
+
+/* Øvelse som mangler verdier ved lagring */
+.card.needs-values { border-color: var(--danger); animation: needs-values 1.2s ease-out; }
+@keyframes needs-values { 0%, 30% { box-shadow: 0 0 0 4px rgb(var(--danger-rgb) / .35); } 100% { box-shadow: var(--card-shadow); } }
+
+/* ---------- Tidtaker ---------- */
+.top-timer {
+  margin-left: auto; flex: none;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px; border-radius: 999px;
+  font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--accent);
+  background: var(--glass-bg); border: 1px solid rgb(var(--accent2-rgb) / .35);
+  backdrop-filter: blur(16px) saturate(170%); -webkit-backdrop-filter: blur(16px) saturate(170%);
+  box-shadow: inset 0 1px 0 var(--glass-hi), 0 4px 14px rgba(0, 0, 0, .3);
+}
+.timer-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
+.timer-big { font-size: 28px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--text); }
+
+/* ---------- Ukediagram: styrke og kondisjon (fargene kommer fra temaet) ---------- */
+.bar-strength { fill: var(--series-strength); }
+.bar-cardio { fill: var(--series-cardio); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 4px 0 8px; font-size: 13px; color: var(--text-2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend b { color: var(--text); font-variant-numeric: tabular-nums; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
+.sw-strength { background: var(--series-strength); }
+.sw-cardio { background: var(--series-cardio); }
+.chart-tip .sw { margin-right: 3px; }
+
+/* Menyen skjules mens tastaturet er oppe (iOS kan ellers plassere den feil) */
+.tabbar { transition: opacity .15s; }
+body.kb-open .tabbar { opacity: 0; pointer-events: none; }
+
+/* ---------- Hjem: siste økter med fargepreg ---------- */
+.recent-list .card.wo-item {
+  background:
+    linear-gradient(135deg, rgb(var(--accent-rgb) / .16), rgb(var(--accent-rgb) / .03) 60%),
+    var(--card-bg);
+  border-color: rgb(var(--accent2-rgb) / .30);
+  box-shadow: inset 3px 0 0 var(--accent), var(--card-shadow);
+}
+.recent-list .wo-item .date { color: var(--text); }
+.history-btn {
+  margin-top: 4px; border-radius: 16px; min-height: 50px;
+  background: linear-gradient(180deg, rgb(var(--accent-rgb) / .22), rgb(var(--accent-rgb) / .12));
+  border: 1px solid rgb(var(--accent2-rgb) / .40); color: var(--accent); font-weight: 700;
+}
+.history-btn span { font-size: 20px; line-height: 1; margin-left: 2px; }
+
+/* ---------- Favorittøkter ---------- */
+.fav-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.fav-card {
+  position: relative; display: flex; min-height: 108px; border-radius: var(--radius);
+  background: radial-gradient(120% 100% at 100% 0%, rgb(var(--gold-rgb) / .12), transparent 60%), var(--card-bg);
+  border: 1px solid var(--card-border); box-shadow: var(--card-shadow); overflow: hidden;
+}
+.fav-main {
+  flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; text-align: left;
+  padding: 12px 34px 12px 12px; border: 0; background: none; cursor: pointer; min-width: 0;
+}
+.fav-main:active { background: rgb(var(--tint-rgb) / .04); }
+.fav-name { font-size: 16px; font-weight: 750; letter-spacing: -.01em; }
+.fav-name::before { content: "★ "; color: var(--gold); }
+.fav-meta { font-size: 12px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: .04em; }
+.fav-list { font-size: 13px; color: var(--text-2); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.fav-menu { position: absolute; top: 4px; right: 4px; margin: 0; width: 34px; height: 34px; color: var(--muted); }
+.fav-new {
+  flex-direction: column; align-items: center; justify-content: center; gap: 4px; cursor: pointer;
+  border: 1.5px dashed rgb(var(--accent2-rgb) / .45); background: rgb(var(--accent-rgb) / .05);
+  color: var(--accent); font-weight: 700; font-size: 14px;
+}
+.fav-plus { font-size: 28px; line-height: 1; font-weight: 400; }
+
+/* Velg vanlig økt eller favorittøkt */
+.start-option {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; cursor: pointer;
+  padding: 12px; margin-top: 8px; border-radius: 14px;
+  border: 1px solid var(--card-border); background: rgb(var(--tint-rgb) / .03);
+}
+.start-option:active { background: rgb(var(--tint-rgb) / .07); }
+.start-option b { display: block; font-size: 16px; }
+.start-option .small { display: block; margin-top: 1px; }
+.start-icon {
+  flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px;
+  background: var(--accent); color: var(--accent-ink); font-size: 20px; font-weight: 800;
+}
+.start-icon.fav { background: rgb(var(--gold-rgb) / .16); color: var(--gold); }
+
+/* Øvelseslista i favorittøkt-redigering */
+.tpl-list { padding: 4px 10px; }
+.tpl-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--card-border); }
+.tpl-row:last-child { border-bottom: 0; }
+.tpl-name { flex: 1; display: flex; flex-direction: column; font-weight: 600; min-width: 0; }
+.tpl-row .del-btn { width: 36px; height: 36px; font-size: 18px; }
+.tpl-row .del-btn:disabled { opacity: .25; }
+
+/* Overskrift med liten +-knapp (Mine favorittøkter) */
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 26px 2px 8px; }
+.section-head .section-title { margin: 0; }
+.add-round {
+  display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; cursor: pointer;
+  color: var(--accent); background: rgb(var(--accent-rgb) / .14); border: 1px solid rgb(var(--accent2-rgb) / .40);
+}
+.add-round:active { transform: scale(.92); }
+
+/* Streak på ukemålet */
+.goal-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.streak {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 10px; border-radius: 14px;
+  background: rgb(var(--accent-rgb) / .14); border: 1px solid rgb(var(--accent2-rgb) / .35);
+}
+.streak-flame { font-size: 24px; line-height: 1; }
+.streak b { display: block; font-size: 22px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.streak div span { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-2); margin-top: 2px; }
+.streak-zero { background: rgb(var(--tint-rgb) / .04); border-color: var(--card-border); }
+.streak-zero .streak-flame { filter: grayscale(1); opacity: .5; }
+
+/* Hurtigknapp «Gjenta» på siste økter */
+/* Samme stil som +-knappen (add-round); bare plasseringen er egen */
+.quick-repeat { position: absolute; right: 12px; bottom: 12px; }
+.recent-list .wo-wrap .wo-item { padding-bottom: 14px; }
+.recent-list .wo-item .meta { padding-right: 44px; }
+/* Infolinja på øktkort: hele elementer brytes til ny linje, ikke ord inni dem */
+.wo-item .meta { flex-wrap: wrap; row-gap: 2px; }
+.wo-item .meta span { white-space: nowrap; }
