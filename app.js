@@ -6,7 +6,7 @@
 
 const STORE_KEY = 'treningslogg.v1';
 
-const CATEGORIES = ['Bein', 'Bryst', 'Rygg', 'Skuldre', 'Armer', 'Mage', 'HIIT', 'Kondisjon', 'Annet'];
+const CATEGORIES = ['Bein', 'Bryst', 'Rygg', 'Skuldre', 'Armer', 'Mage', 'Funksjonell styrketrening', 'Kondisjon', 'Annet'];
 
 // Standardøvelser. Id-ene er stabile, slik at historikken følger med når navn/kategori endres.
 // also: øvelsen vises også i disse mappene. measure: 'time' = holdes på tid (sek), 'distance' = vekt og lengde (m).
@@ -63,9 +63,9 @@ const DEFAULT_EXERCISES = [
   S('abwheel', 'Ab wheel', 'Mage'),
   S('magemaskin', 'Magemaskin', 'Mage'),
 
-  S('farmers', 'Farmers carry', 'HIIT', { measure: 'distance' }),
-  S('sledpush', 'Sled push', 'HIIT', { measure: 'distance' }),
-  S('sledpull', 'Sled pull', 'HIIT', { measure: 'distance' }),
+  S('farmers', 'Farmers carry', 'Funksjonell styrketrening', { measure: 'distance' }),
+  S('sledpush', 'Sled push', 'Funksjonell styrketrening', { measure: 'distance' }),
+  S('sledpull', 'Sled pull', 'Funksjonell styrketrening', { measure: 'distance' }),
 
   C('mole', 'Tredemølle', { distance: true, unit: 'km', speed: 'kmh', fields: ['incline'], pace: true }),
   C('spinning', 'Spinningsykkel', { distance: true, unit: 'km', speed: 'kmh', fields: ['watt', 'level'] }),
@@ -202,7 +202,8 @@ function load() {
     const raw = localStorage.getItem(STORE_KEY);
     if (raw) return migrate(JSON.parse(raw));
   } catch (e) { console.error(e); }
-  return { version: 1, exercises: defaultExercises(), workouts: [], draft: null, deletedDefaults: [] };
+  // Ny bruker: kjør samme migrering, slik at alle felt (mapper, favoritter, profil …) finnes
+  return migrate({ version: 1, exercises: defaultExercises(), workouts: [], draft: null, deletedDefaults: [] });
 }
 function migrate(d) {
   d.exercises ||= [];
@@ -212,8 +213,8 @@ function migrate(d) {
   d.templates ||= [];
   d.profile ||= {};
   delete d.profile.weightKg; // vekt er fjernet fra profilen og skal ikke ligge lagret
-  // Mappen «Helkropp» heter nå «HIIT» (gjelder også egne øvelser)
-  for (const e of d.exercises) if (e.cat === 'Helkropp') e.cat = 'HIIT';
+  // Mappen het tidligere «Helkropp» og deretter «HIIT» (gjelder også egne øvelser)
+  for (const e of d.exercises) if (e.cat === 'Helkropp' || e.cat === 'HIIT') e.cat = 'Funksjonell styrketrening';
   for (const e of defaultExercises()) {
     const cur = d.exercises.find((x) => x.id === e.id);
     if (cur) {
@@ -536,8 +537,8 @@ let confirmResolve = null;
 function askConfirm(text, { title = 'Er du sikker?', ok = 'OK', cancel = 'Avbryt', danger = false } = {}) {
   closeSheet();
   return new Promise((resolve) => {
-    openSheet(`<h2>${esc(title)}</h2>
-      <p style="white-space:pre-line;margin-bottom:16px">${esc(text)}</p>
+    openSheet(`<h2${text ? "" : " style=\"margin-bottom:18px\""}>${esc(title)}</h2>
+      ${text ? `<p style="white-space:pre-line;margin-bottom:16px">${esc(text)}</p>` : ""}
       <div class="btn-row">
         <button class="btn ghost" data-act="confirm-no">${esc(cancel)}</button>
         <button class="btn ${danger ? 'danger-solid' : 'primary'}" data-act="confirm-yes">${esc(ok)}</button>
@@ -606,34 +607,60 @@ function moveTabIndicator() {
   if (i >= 0) ind.style.transform = `translateX(${i * 100}%)`;
 }
 
-// Fargetema lagres per enhet. Gradient-stilen er fast; temaet bestemmer fargene.
-// Forhåndsvisningen i velgeren bruker temaets egne farger.
+// Utseende = farge × modus, lagres per enhet. Gradient-stilen er fast.
+// Forhåndsvisningen i velgeren viser fargen i valgt modus.
 const THEMES = [
-  { id: 'orange', name: 'Oransje', bg: '#151515', card: '#2a2a2a', text: '#f1eee8', accent: '#ff6b1a' },
-  { id: 'blue', name: 'Lys blå', bg: '#f6f8fc', card: '#ffffff', text: '#111827', accent: '#2563eb' },
-  { id: 'mint', name: 'Mint', bg: '#0d1714', card: '#1c2824', text: '#f3f1e8', accent: '#62e6b5' },
+  { id: 'orange', name: 'Oransje',
+    dark: { bg: '#151515', card: '#2a2a2a', text: '#f1eee8', accent: '#ff6b1a' },
+    light: { bg: '#f6f8fc', card: '#ffffff', text: '#111827', accent: '#c2410c' } },
+  { id: 'blue', name: 'Lys blå',
+    dark: { bg: '#151515', card: '#2a2a2a', text: '#f1eee8', accent: '#60a5fa' },
+    light: { bg: '#f6f8fc', card: '#ffffff', text: '#111827', accent: '#2563eb' } },
+  { id: 'mint', name: 'Mint',
+    dark: { bg: '#0d1714', card: '#1c2824', text: '#f3f1e8', accent: '#62e6b5' },
+    light: { bg: '#f6f8fc', card: '#ffffff', text: '#111827', accent: '#047857' } },
 ];
+const MODES = [['dark', 'Mørk'], ['light', 'Lys'], ['auto', 'Automatisk']];
 const currentTheme = () => (THEMES.some((t) => t.id === document.documentElement.dataset.theme) ? document.documentElement.dataset.theme : 'orange');
-const themeName = () => THEMES.find((t) => t.id === currentTheme()).name;
+const shownMode = () => (document.documentElement.dataset.mode === 'light' ? 'light' : 'dark');
+function savedMode() {
+  try { const m = localStorage.getItem('treningslogg.mode'); if (MODES.some(([v]) => v === m)) return m; } catch {}
+  return shownMode();
+}
+const themeName = () => {
+  const mode = savedMode();
+  return `${THEMES.find((t) => t.id === currentTheme()).name} · ${mode === 'auto' ? 'automatisk' : mode === 'light' ? 'lys' : 'mørk'}`;
+};
 
 function renderAppearance() {
   setHeader('Utseende', '#/mer');
-  view().innerHTML = `<h2 class="section-title" style="margin-top:8px">Fargetema</h2>
+  const shown = shownMode();
+  view().innerHTML = `<h2 class="section-title" style="margin-top:8px">Farge</h2>
   <section class="card">
-    <div class="theme-picker" role="group" aria-label="Fargetema">
-      ${THEMES.map((t) => `<button type="button" class="theme-option" data-act="set-theme" data-v="${t.id}" aria-pressed="${currentTheme() === t.id}">
-        <span class="theme-swatch" style="--p-bg:${t.bg};--p-card:${t.card};--p-text:${t.text};--p-accent:${t.accent}"><i></i><i></i><b></b></span>${t.name}</button>`).join('')}
+    <div class="theme-picker" role="group" aria-label="Farge">
+      ${THEMES.map((t) => {
+        const p = t[shown];
+        return `<button type="button" class="theme-option" data-act="set-theme" data-v="${t.id}" aria-pressed="${currentTheme() === t.id}">
+          <span class="theme-swatch" style="--p-bg:${p.bg};--p-card:${p.card};--p-text:${p.text};--p-accent:${p.accent}"><i></i><i></i><b></b></span>${t.name}</button>`;
+      }).join('')}
+    </div>
+  </section>
+  <h2 class="section-title">Modus</h2>
+  <section class="card">
+    <div class="seg-toggle three" role="group" aria-label="Modus">
+      ${MODES.map(([v, l]) => `<button type="button" data-act="set-mode" data-v="${v}" aria-pressed="${savedMode() === v}">${l}</button>`).join('')}
     </div>
   </section>`;
 }
-// Stilvalget (gradient/glass/flat) er fjernet – rydd bort den gamle innstillingen
+// Stilvalget (gradient/glass/flat) fra en eldre versjon er fjernet – rydd bort innstillingen
 try { localStorage.removeItem('treningslogg.style'); } catch {}
 
-function setTheme(id) {
-  const t = THEMES.find((x) => x.id === id) || THEMES[0];
-  document.documentElement.dataset.theme = t.id;
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', t.bg);
-  try { localStorage.setItem('treningslogg.theme', t.id); } catch {}
+function setAppearance(theme, mode) {
+  const t = THEMES.some((x) => x.id === theme) ? theme : 'orange';
+  const m = MODES.some(([v]) => v === mode) ? mode : 'dark';
+  try { localStorage.setItem('treningslogg.theme', t); localStorage.setItem('treningslogg.mode', m); } catch {}
+  if (window.__applyAppearance) window.__applyAppearance(t, m);
+  else { document.documentElement.dataset.theme = t; document.documentElement.dataset.mode = m === 'light' ? 'light' : 'dark'; }
 }
 
 /* =========================================================
@@ -871,9 +898,16 @@ function renderTemplateEditor(id) {
       : '<p class="small muted" style="margin:0 2px 10px">Ingen øvelser ennå.</p>'}
     <button class="btn secondary block big" data-act="tpl-add">+ Legg til øvelser</button>
     <button class="btn primary block big" style="margin-top:12px" data-act="tpl-save">Lagre favorittøkt</button>
-    ${t.id ? `<button class="btn danger block" style="margin-top:10px" data-act="tpl-delete">Slett favorittøkt</button>` : ''}`;
+    ${t.id ? `<button class="btn danger block btn-destructive" data-act="tpl-delete">Slett favorittøkt</button>` : ''}`;
 }
 
+// Escaper teksten og markerer søketreff med <mark>
+function markMatch(text, q) {
+  const s = String(text);
+  const i = q ? s.toLowerCase().indexOf(q.toLowerCase()) : -1;
+  if (i < 0) return esc(s);
+  return esc(s.slice(0, i)) + '<mark>' + esc(s.slice(i, i + q.length)) + '</mark>' + esc(s.slice(i + q.length));
+}
 function workoutCard(w, opts = {}) {
   const names = w.entries.map((e) => exById(e.exerciseId).name + (e.mode === 'max' ? ' (1RM)' : ''));
   const feel = FEELINGS.find((f) => f.v === w.feeling);
@@ -885,7 +919,7 @@ function workoutCard(w, opts = {}) {
   if (folderName && !opts.hideFolder) meta.push(`📁 ${folderName}`);
   return `<div class="wo-wrap"><a class="card wo-item" href="#/okt/${encodeURIComponent(w.id)}">
     <div class="date">${esc(fmtDate(w.date))}</div>
-    <div class="ex">${esc(names.join(' · ') || 'Ingen øvelser')}</div>
+    <div class="ex">${names.length ? names.map((n) => markMatch(n, opts.highlight)).join(' · ') : 'Ingen øvelser'}</div>
     ${meta.length ? `<div class="meta">${meta.map((m) => `<span>${esc(m)}</span>`).join('')}</div>` : ''}
   </a>
   <button class="icon-btn wo-menu" data-act="wo-menu" data-id="${esc(w.id)}" aria-label="Valg for økta ${esc(fmtDate(w.date))}">
@@ -1016,7 +1050,7 @@ function renderEditor() {
   </section>`;
 
   html += `<button class="btn primary block big" data-act="save-workout">Lagre økt</button>
-    <button class="btn danger block" style="margin-top:10px" data-act="discard">${d.id ? 'Avbryt redigering' : 'Forkast økt'}</button>`;
+    <button class="btn danger block btn-destructive" data-act="discard">${d.id ? 'Avbryt redigering' : 'Forkast økt'}</button>`;
 
   view().innerHTML = html;
 }
@@ -1733,7 +1767,7 @@ function renderWorkoutDetail(id) {
     <button class="btn ghost" data-act="edit-workout" data-id="${esc(w.id)}">Rediger</button>
     <button class="btn ghost" data-act="repeat-workout" data-id="${esc(w.id)}">Gjenta økt</button>
   </div>
-  <button class="btn danger block" style="margin-top:10px" data-act="delete-workout" data-id="${esc(w.id)}">Slett økt</button>`;
+  <button class="btn danger block btn-destructive" data-act="delete-workout" data-id="${esc(w.id)}">Slett økt</button>`;
   view().innerHTML = html;
   for (const el of document.querySelectorAll('[data-seg-chart]')) {
     const en = w.entries.find((e) => e.id === el.dataset.segChart);
@@ -1777,28 +1811,159 @@ function drawSegChart(el, segs, rates) {
 /* =========================================================
    Historikk
    ========================================================= */
-// Historikk: tidslinje («Alle økter») eller egne mapper
-const histUI = { mode: (() => { try { return localStorage.getItem('treningslogg.histmode') || 'folders'; } catch { return 'folders'; } })() };
+// Historikk: tidslinje («Alle økter») eller egne mapper, med søk og datofilter
+const histUI = {
+  mode: (() => { try { return localStorage.getItem('treningslogg.histmode') || 'folders'; } catch { return 'folders'; } })(),
+  q: '',             // søk på øvelsesnavn
+  dateMode: 'all',   // 'all' | 'day' | 'range'
+  day: '', from: '', to: '',
+  order: 'desc',     // 'desc' = nyeste først
+  filterOpen: false, // datofilteret er sammenlagt til man trykker på kalenderikonet
+};
+const histFilterActive = () => !!histUI.q.trim() || (histUI.dateMode === 'day' && histUI.day) || (histUI.dateMode === 'range' && (histUI.from || histUI.to));
+
+// Økter som passer søk og datofilter, sortert etter valgt rekkefølge
+function filteredWorkouts() {
+  const q = histUI.q.trim().toLowerCase();
+  let ws = sortedWorkouts().filter((w) => {
+    if (q && !w.entries.some((e) => exById(e.exerciseId).name.toLowerCase().includes(q))) return false;
+    if (histUI.dateMode === 'day' && histUI.day && w.date !== histUI.day) return false;
+    if (histUI.dateMode === 'range') {
+      if (histUI.from && w.date < histUI.from) return false;
+      if (histUI.to && w.date > histUI.to) return false;
+    }
+    return true;
+  });
+  if (histUI.order === 'asc') ws = ws.reverse();
+  return ws;
+}
+
+/* ---------- Trend: økter per måned ---------- */
+const TREND_MESSAGES = {
+  up: [
+    'Du har hatt en positiv trend i det siste – stå på! 💪',
+    'Pilen peker oppover. Fortsett den gode flyten! 🚀',
+    'Flere økter enn før – du er på riktig vei! 🔥',
+    'Sterk utvikling den siste tiden. Hold trykket oppe!',
+  ],
+  flat: [
+    'Du trener jevnt – fortsett slik! 👌',
+    'Stødig og jevnt. Det er sånn fremgang bygges.',
+    'Fin rytme i treningen. Bare fortsett! 💪',
+    'Jevn innsats måned etter måned – godt jobba.',
+  ],
+  down: [
+    'Du har trent litt mindre i det siste – lytt til kroppen. 🙏',
+    'Litt roligere periode nå. Hvile er også en del av treningen.',
+    'Færre økter enn før – ta det i ditt tempo og lytt til kroppen.',
+    'Litt nedgang i det siste. Én økt om gangen, så er du i gang igjen.',
+  ],
+};
+const TREND_LABELS = { up: '↗ Økende', flat: '→ Stabil', down: '↘ Synkende' };
+
+// Månedene fra første måned med økter (maks de siste 6), med prognose for inneværende måned
+function monthlyTrend() {
+  const now = new Date();
+  const months = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    months.push({ key, d, n: db.workouts.filter((w) => w.date.startsWith(key)).length });
+  }
+  const first = months.findIndex((m) => m.n > 0);
+  if (first < 0) return null;
+  const list = months.slice(first);
+  if (list.length < 2) return null;
+  // Inneværende måned er ikke ferdig: regn om etter dagene som har gått
+  const cur = list[list.length - 1];
+  const day = now.getDate();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  cur.partial = true;
+  cur.projected = cur.n * (daysInMonth / day);
+  // Tidlig i måneden er prognosen usikker – da sammenlignes bare hele måneder
+  const vals = list.map((m) => (m.partial ? m.projected : m.n));
+  const useVals = day < 7 ? vals.slice(0, -1) : vals;
+  if (useVals.length < 2) return { list, trend: 'flat' };
+  const recent = useVals.slice(-2);
+  const prior = useVals.slice(0, -2).slice(-3);
+  const avg = (a) => a.reduce((s, v) => s + v, 0) / a.length;
+  const [a, b] = prior.length ? [avg(recent), avg(prior)] : [useVals[useVals.length - 1], useVals[useVals.length - 2]];
+  const ratio = b ? a / b : a > 0 ? 2 : 1;
+  const trend = ratio >= 1.15 ? 'up' : ratio <= 0.85 ? 'down' : 'flat';
+  return { list, trend };
+}
+
+let trendData = null;
+function trendCard() {
+  trendData = monthlyTrend();
+  if (!trendData) return '';
+  const { trend } = trendData;
+  const msgs = TREND_MESSAGES[trend];
+  const msg = msgs[Math.floor(Math.random() * msgs.length)];
+  return `<section class="card trend-card trend-${trend}">
+    <div class="row between">
+      <span class="goal-label">Økter per måned</span>
+      <span class="trend-pill">${TREND_LABELS[trend]}</span>
+    </div>
+    <div class="chart-wrap" id="trend-chart"></div>
+    <p class="trend-msg">${esc(msg)}</p>
+  </section>`;
+}
+
+function drawTrendChart() {
+  const el = $('#trend-chart');
+  if (!el || !trendData) return;
+  const pts = trendData.list;
+  const W = Math.max(260, el.clientWidth), H = 78, m = { t: 12, r: 10, b: 18, l: 10 };
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const max = Math.max(1, ...pts.map((p) => p.n));
+  const X = (i) => m.l + (pts.length === 1 ? iw / 2 : (i / (pts.length - 1)) * iw);
+  const Y = (v) => m.t + ih - (v / max) * ih;
+  const xy = pts.map((p, i) => [X(i), Y(p.n)]);
+  // Hele måneder heltrukket, inneværende (ufullstendig) måned stiplet
+  const solid = xy.slice(0, -1).map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join('');
+  const [lx, ly] = xy[xy.length - 1], [px, py] = xy[xy.length - 2];
+  const area = `M${xy[0][0]},${m.t + ih}` + xy.map(([x, y]) => `L${x.toFixed(1)},${y.toFixed(1)}`).join('') + `L${lx},${m.t + ih}Z`;
+  const mon = (d) => d.toLocaleDateString('nb-NO', { month: 'short' }).replace('.', '');
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Antall økter per måned: ${pts.map((p) => `${mon(p.d)} ${p.n}`).join(', ')}">
+    <defs><linearGradient id="trend-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color: var(--accent); stop-opacity: .28"/><stop offset="1" style="stop-color: var(--accent); stop-opacity: 0"/></linearGradient></defs>
+    <path d="${area}" fill="url(#trend-fill)"/>
+    ${solid ? `<path class="series-line" d="${solid}"/>` : ''}
+    <path class="series-line" d="M${px},${py}L${lx},${ly}" style="stroke-dasharray: 4 4"/>
+    ${xy.map(([x, y], i) => i === xy.length - 1
+      ? `<circle cx="${x}" cy="${y}" r="4.5" class="trend-now"/>`
+      : `<circle cx="${x}" cy="${y}" r="3.5" class="series-dot"/>`).join('')}
+    <g class="axis">${pts.map((p, i) => `<text x="${X(i)}" y="${H - 3}" text-anchor="${i === 0 ? 'start' : i === pts.length - 1 ? 'end' : 'middle'}">${mon(p.d)}</text>`).join('')}</g>
+    <line class="crosshair" x1="0" x2="0" y1="${m.t}" y2="${m.t + ih}"/>
+    <circle class="hover-dot" r="5" cx="0" cy="0"/>
+    <rect x="0" y="0" width="${W}" height="${H}" fill="transparent"/>
+  </svg><div class="chart-tip"></div>`;
+  attachHover(el, W, pts.map((p, i) => ({
+    x: xy[i][0], y: xy[i][1],
+    tip: `<b>${p.n} ${p.n === 1 ? 'økt' : 'økter'}</b><br>${esc(p.d.toLocaleDateString('nb-NO', { month: 'long', year: 'numeric' }))}${p.partial ? ' (hittil)' : ''}`,
+  })), true);
+}
 
 function renderHistory() {
   setHeader('Historikk');
-  const ws = sortedWorkouts();
-  if (!ws.length && !db.folders.length) {
+  const all = sortedWorkouts();
+  if (!all.length && !db.folders.length) {
     view().innerHTML = `<div class="empty"><p>Ingen økter ennå.</p></div><button class="btn primary block big" data-act="start-workout">+ Registrer økt</button>`;
     return;
   }
-  const mode = db.folders.length ? histUI.mode : 'all';
-  let html = `<div class="hist-top">
-    <div class="seg-toggle" role="group" aria-label="Visning">
+  const mode = histUI.mode === 'all' ? 'all' : 'folders';
+  let html = `<div class="seg-toggle" role="group" aria-label="Visning" style="margin-top:4px">
       <button type="button" data-act="hist-mode" data-v="folders" aria-pressed="${mode === 'folders'}">Mapper</button>
       <button type="button" data-act="hist-mode" data-v="all" aria-pressed="${mode === 'all'}">Alle økter</button>
-    </div></div>`;
+    </div>`;
+  html += trendCard();
 
   if (mode === 'folders') {
+    // Mapper står alfabetisk; øktene i hver mappe nyeste først
     html += `<button class="btn ghost block" style="margin-top:12px" data-act="new-folder" data-ctx="history">+ Ny mappe</button>`;
     html += '<div class="folder-list">';
     for (const f of sortedFolders()) {
-      const list = ws.filter((w) => w.folderId === f.id);
+      const list = all.filter((w) => w.folderId === f.id);
       const body = `<div class="row folder-actions">
           <button class="btn ghost sm" data-act="rename-folder" data-id="${esc(f.id)}">Gi nytt navn</button>
           <button class="btn ghost sm danger" data-act="delete-folder" data-id="${esc(f.id)}">Slett mappe</button>
@@ -1806,25 +1971,75 @@ function renderHistory() {
         ${list.length ? list.map((w) => workoutCard(w, { hideFolder: true })).join('') : '<p class="small muted" style="padding:6px 0 12px">Ingen økter i denne mappa ennå.</p>'}`;
       html += folder('wf-' + f.id, f.name, list.length, body, '📁');
     }
-    const loose = ws.filter((w) => !folderById(w.folderId));
+    const loose = all.filter((w) => !folderById(w.folderId));
     if (loose.length) html += folder('wf-none', 'Uten mappe', loose.length, loose.map((w) => workoutCard(w)).join(''), '🗂️');
     html += '</div>';
     view().innerHTML = html;
+    drawTrendChart();
     return;
   }
 
-  let month = '';
+  // Alle økter: kompakt søk, datofilter (sammenleggbart) og rekkefølge
+  const dm = histUI.dateMode;
+  const dateOn = (dm === 'day' && histUI.day) || (dm === 'range' && (histUI.from || histUI.to));
+  html += `<div class="hist-tools">
+      <label class="hist-search">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 16l4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <input type="search" data-hist-q value="${esc(histUI.q)}" placeholder="Søk etter øvelse" autocomplete="off" aria-label="Søk etter øvelse">
+      </label>
+      <button type="button" class="tool-btn" data-act="hist-filter-toggle" aria-pressed="${!!(histUI.filterOpen || dateOn)}" aria-label="Datofilter" title="Datofilter">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 10h16M9 3v4M15 3v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        ${dateOn ? '<span class="tool-dot" aria-hidden="true"></span>' : ''}
+      </button>
+      <button type="button" class="tool-btn" data-act="hist-order" aria-label="${histUI.order === 'desc' ? 'Nyeste først – trykk for eldste først' : 'Eldste først – trykk for nyeste først'}" title="${histUI.order === 'desc' ? 'Nyeste først' : 'Eldste først'}">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="${histUI.order === 'desc' ? 'M8 4v16M8 20l-3-3M8 20l3-3M14 6h6M14 11h4M14 16h2' : 'M8 20V4M8 4L5 7M8 4l3 3M14 6h2M14 11h4M14 16h6'}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>`;
+  if (histUI.filterOpen || dateOn) {
+    html += `<div class="hist-dates">
+      <div class="seg-toggle three mini3" role="group" aria-label="Dato">
+        <button type="button" data-act="hist-date" data-v="all" aria-pressed="${dm === 'all'}">Alle</button>
+        <button type="button" data-act="hist-date" data-v="day" aria-pressed="${dm === 'day'}">Dato</button>
+        <button type="button" data-act="hist-date" data-v="range" aria-pressed="${dm === 'range'}">Periode</button>
+      </div>
+      ${dm === 'day' ? `<input type="date" data-hist-f="day" value="${esc(histUI.day)}" max="${todayISO()}" aria-label="Dato">` : ''}
+      ${dm === 'range' ? `<div class="cardio-grid" style="margin-top:0">
+          <label class="field">Fra<input type="date" data-hist-f="from" value="${esc(histUI.from)}" max="${todayISO()}"></label>
+          <label class="field">Til<input type="date" data-hist-f="to" value="${esc(histUI.to)}" max="${todayISO()}"></label>
+        </div>` : ''}
+    </div>`;
+  }
+  html += `<div class="hist-meta small muted"><span data-hist-count></span><button type="button" class="link-btn" data-act="hist-reset" data-hist-reset hidden>Nullstill</button></div>
+    <div id="hist-results"></div>`;
+  view().innerHTML = html;
+  drawTrendChart();
+  renderHistoryResults();
+}
+
+// Tegner bare resultatlista, slik at søkefeltet beholder fokus mens man skriver
+function renderHistoryResults() {
+  const box = $('#hist-results');
+  if (!box) return;
+  const ws = filteredWorkouts();
+  const filtering = histFilterActive();
+  const count = $('[data-hist-count]');
+  if (count) count.textContent = filtering ? `${ws.length} ${ws.length === 1 ? 'økt' : 'økter'} funnet` : `${ws.length} ${ws.length === 1 ? 'økt' : 'økter'}`;
+  const reset = $('[data-hist-reset]');
+  if (reset) reset.hidden = !filtering;
+  if (!ws.length) { box.innerHTML = `<div class="empty"><p>Ingen økter passer søket.</p></div>`; return; }
+  const hl = histUI.q.trim();
+  let html = '', month = '';
   for (const w of ws) {
     const m = w.date.slice(0, 7);
     if (m !== month) {
       month = m;
-      const count = ws.filter((x) => x.date.startsWith(m)).length;
+      const n = ws.filter((x) => x.date.startsWith(m)).length;
       const label = dateObj(m + '-01').toLocaleDateString('nb-NO', { month: 'long', year: 'numeric' });
-      html += `<h2 class="section-title">${esc(label)} · ${count} ${count === 1 ? 'økt' : 'økter'}</h2>`;
+      html += `<h2 class="section-title">${esc(label)} · ${n} ${n === 1 ? 'økt' : 'økter'}</h2>`;
     }
-    html += workoutCard(w);
+    html += workoutCard(w, { highlight: hl });
   }
-  view().innerHTML = html;
+  box.innerHTML = html;
 }
 
 function openFolderForm(ctx, existing) {
@@ -1878,33 +2093,320 @@ function openMoveSheet(workoutId) {
 /* =========================================================
    Statistikk
    ========================================================= */
-const statsUI = { metric: {}, purpose: {}, weight: {} };
+const statsUI = { metric: {}, purpose: {}, weight: {}, period: 'month', dist: 'strength' };
+
+/* =========================================================
+   Statistikk – oversikt i kategorier
+   ========================================================= */
+const STATS_PERIODS = [
+  { k: 'week', l: 'Siste uka', short: 'Uke', days: 7, prev: 'forrige uke' },
+  { k: 'month', l: 'Siste måned', short: 'Måned', days: 30, prev: 'forrige måned' },
+  { k: 'year', l: 'Siste år', short: 'År', days: 365, prev: 'forrige år' },
+  { k: 'all', l: 'Siden start', short: 'Siden start', days: null },
+];
+// Rullerende periode som slutter i dag, og like lang periode rett før (til sammenligning)
+function periodRange(k) {
+  const p = STATS_PERIODS.find((x) => x.k === k) || STATS_PERIODS[1];
+  if (!p.days) return { p, from: '', to: todayISO(), prevFrom: null, prevTo: null };
+  const day = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return isoDay(d); };
+  return { p, from: day(p.days - 1), to: todayISO(), prevFrom: day(2 * p.days - 1), prevTo: day(p.days) };
+}
+const workoutsBetween = (from, to) => db.workouts.filter((w) => (!from || w.date >= from) && w.date <= to);
+
+// Alle rekorder, i den rekkefølgen de ble satt. En øvelse i en økt teller én gang,
+// og bare når en tidligere beste verdi slås (første gang teller ikke).
+function recordEvents() {
+  const best = {}, events = [];
+  const keysFor = (ex, en) => {
+    if (ex.kind === 'cardio') {
+      const cfg = exCfg(ex);
+      return [cfg.distance && 'distanceKm', cfg.speed !== 'none' && 'speed'].filter(Boolean);
+    }
+    if (en.mode === 'max') return ['tested'];
+    return { time: ['maxSec'], distance: ['carryWeight', 'maxMeters'] }[exMeasure(ex)] || ['repWeight'];
+  };
+  const ordered = [...db.workouts].sort((a, b) => a.date.localeCompare(b.date) || (a.createdAt || 0) - (b.createdAt || 0));
+  for (const w of ordered) {
+    for (const en of w.entries) {
+      const ex = exById(en.exerciseId);
+      const st = entryStats(en);
+      if (!st) continue;
+      let beat = false;
+      for (const k of keysFor(ex, en)) {
+        const v = st[k];
+        if (v == null) continue;
+        const id = `${ex.id}|${k}`;
+        if (best[id] != null && v > best[id]) beat = true;
+        if (best[id] == null || v > best[id]) best[id] = v;
+      }
+      if (beat) events.push({ date: w.date, exId: ex.id });
+    }
+  }
+  return events;
+}
+
+/* ---------- Muskelgrupper ---------- */
+const MUSCLES = [
+  ['chest', 'Bryst'], ['shoulders', 'Skuldre'], ['biceps', 'Biceps'], ['triceps', 'Triceps'], ['forearms', 'Underarmer'],
+  ['abs', 'Mage'], ['upperback', 'Øvre rygg'], ['lats', 'Latissimus'], ['lowerback', 'Nedre rygg'],
+  ['glutes', 'Sete'], ['quads', 'Forside lår'], ['hamstrings', 'Bakside lår'], ['calves', 'Legger'],
+];
+const muscleName = (id) => (MUSCLES.find(([k]) => k === id) || [id, id])[1];
+// Hvilke muskler hver standardøvelse trener: 1 = hovedmuskel, 0.5 = hjelpemuskel
+const EX_MUSCLES = {
+  'knebøy': { quads: 1, glutes: 1, hamstrings: 0.5, lowerback: 0.5 },
+  beinpress: { quads: 1, glutes: 0.5 },
+  utfall: { quads: 1, glutes: 1, hamstrings: 0.5 },
+  bulgarsk: { quads: 1, glutes: 1 },
+  'marklöft': { hamstrings: 1, glutes: 1, lowerback: 1, upperback: 0.5, forearms: 0.5 },
+  rumensk: { hamstrings: 1, glutes: 1, lowerback: 0.5 },
+  legext: { quads: 1 },
+  legcurl: { hamstrings: 1 },
+  tahev: { calves: 1 },
+  benkpress: { chest: 1, triceps: 0.5, shoulders: 0.5 },
+  skrabenk: { chest: 1, shoulders: 0.5, triceps: 0.5 },
+  brystpress: { chest: 1, triceps: 0.5 },
+  'hantelpress-bryst': { chest: 1, triceps: 0.5, shoulders: 0.5 },
+  flyes: { chest: 1 },
+  cablecross: { chest: 1 },
+  pushups: { chest: 1, triceps: 0.5, shoulders: 0.5 },
+  nedtrekk: { lats: 1, biceps: 0.5 },
+  pullups: { lats: 1, biceps: 0.5, upperback: 0.5 },
+  roing: { upperback: 1, lats: 1, biceps: 0.5 },
+  stangroing: { upperback: 1, lats: 1, lowerback: 0.5, biceps: 0.5 },
+  hantelroing: { lats: 1, upperback: 0.5, biceps: 0.5 },
+  facepull: { shoulders: 1, upperback: 1 },
+  skulderpress: { shoulders: 1, triceps: 0.5 },
+  'hantelpress-skulder': { shoulders: 1, triceps: 0.5 },
+  sidehev: { shoulders: 1 },
+  fronthev: { shoulders: 1 },
+  omvendtflyes: { shoulders: 1, upperback: 0.5 },
+  biceps: { biceps: 1, forearms: 0.5 },
+  hammer: { biceps: 1, forearms: 1 },
+  preacher: { biceps: 1 },
+  triceps: { triceps: 1 },
+  franskpress: { triceps: 1 },
+  dips: { triceps: 1, chest: 0.5, shoulders: 0.5 },
+  overheadtri: { triceps: 1 },
+  situps: { abs: 1 },
+  crunches: { abs: 1 },
+  cablecrunch: { abs: 1 },
+  beinloft: { abs: 1 },
+  kneeraises: { abs: 1 },
+  planke: { abs: 1, lowerback: 0.5 },
+  russian: { abs: 1 },
+  abwheel: { abs: 1, lats: 0.5 },
+  magemaskin: { abs: 1 },
+  farmers: { forearms: 1, upperback: 1, glutes: 0.5, quads: 0.5, abs: 0.5 },
+  sledpush: { quads: 1, glutes: 1, calves: 0.5 },
+  sledpull: { hamstrings: 1, glutes: 1, upperback: 0.5 },
+};
+// Egne øvelser: muskler ut fra mappen de ligger i
+const CAT_MUSCLES = {
+  Bein: { quads: 1, glutes: 0.5, hamstrings: 0.5 },
+  Bryst: { chest: 1, triceps: 0.5 },
+  Rygg: { lats: 1, upperback: 0.5 },
+  Skuldre: { shoulders: 1 },
+  Armer: { biceps: 0.5, triceps: 0.5, forearms: 0.5 },
+  Mage: { abs: 1 },
+  'Funksjonell styrketrening': { quads: 0.5, glutes: 0.5, upperback: 0.5, abs: 0.5 },
+};
+const musclesFor = (ex) => EX_MUSCLES[ex.id] || CAT_MUSCLES[ex.cat] || {};
+
+// Arbeidssett i en styrkeøvelse: fullførte sett (reps, tid eller lengde) eller forsøk i 1RM-test
+function workSets(en) {
+  if (en.mode === 'max') return (en.attempts || []).filter((a) => a.weight > 0).length;
+  return (en.sets || []).filter(setDone).length;
+}
+
+// Treningsfordeling og muskelbelastning for en mengde økter
+function distribution(ws) {
+  const cats = {}, purposes = {}, muscles = {};
+  for (const w of ws) {
+    for (const en of w.entries) {
+      const ex = exById(en.exerciseId);
+      if (ex.kind === 'cardio') {
+        const p = en.purpose || 'endurance';
+        purposes[p] ||= { n: 0, sec: 0 };
+        purposes[p].n++;
+        purposes[p].sec += cardioStats(en)?.timeSec || 0;
+        continue;
+      }
+      const sets = workSets(en);
+      if (!sets) continue;
+      const c = ex.cat || 'Annet';
+      cats[c] ||= { sets: 0, ex: 0 };
+      cats[c].sets += sets;
+      cats[c].ex++;
+      for (const [m, f] of Object.entries(musclesFor(ex))) muscles[m] = (muscles[m] || 0) + sets * f;
+    }
+  }
+  return { cats, purposes, muscles };
+}
+
+function fmtMinutes(min) {
+  if (!min) return '0 min';
+  const h = Math.floor(min / 60), m = Math.round(min % 60);
+  return h ? `${h} t${m ? ` ${m} min` : ''}` : `${m} min`;
+}
+// Endring mot forrige like periode, med pil og fortegn (aldri bare farge)
+function deltaHtml(cur, prev, prevLabel, fmt = (v) => v) {
+  if (prev == null) return '';
+  const d = cur - prev;
+  if (!d) return `<span class="delta flat">→ Likt som ${prevLabel}</span>`;
+  const pct = prev ? ` (${d > 0 ? '+' : '−'}${Math.round((Math.abs(d) / prev) * 100)} %)` : '';
+  return `<span class="delta ${d > 0 ? 'up' : 'down'}">${d > 0 ? '↑' : '↓'} ${d > 0 ? '+' : '−'}${fmt(Math.abs(d))}${pct} fra ${prevLabel}</span>`;
+}
+
+// Liggende stolper med verdien skrevet ut (én serie – ingen forklaring nødvendig)
+function hbars(rows) {
+  const max = Math.max(1, ...rows.map((r) => r.v));
+  return `<div class="hbars">${rows.map((r) => `<div class="hbar-row">
+      <span class="hbar-label">${esc(r.label)}</span>
+      <span class="hbar-track"><span class="hbar-fill" style="width:${(r.v / max) * 100}%"></span></span>
+      <span class="hbar-value">${esc(r.text)}</span>
+    </div>`).join('')}</div>`;
+}
+
+function renderStatsOverview(used) {
+  setHeader('Statistikk');
+  if (!db.workouts.length) { view().innerHTML = `<div class="empty"><p>Ingen data ennå.</p></div>`; return; }
+  const period = statsUI.period || 'month';
+  const { p, from, to, prevFrom, prevTo } = periodRange(period);
+  const cur = workoutsBetween(from, to);
+  const prev = prevFrom ? workoutsBetween(prevFrom, prevTo) : null;
+  const recs = recordEvents();
+  const recIn = (a, b) => recs.filter((r) => (!a || r.date >= a) && r.date <= b).length;
+  const mins = (ws) => ws.reduce((s, w) => s + (w.durationMin || 0), 0);
+
+  let html = `<div class="seg-toggle four period-seg" role="group" aria-label="Periode">
+    ${STATS_PERIODS.map((x) => `<button type="button" data-act="stats-period" data-v="${x.k}" aria-pressed="${x.k === period}">${x.short}</button>`).join('')}
+  </div>`;
+
+  // 1. Personlig prestasjon – nøkkeltall med endring mot forrige like periode
+  const kpi = (label, value, delta) => `<div class="kpi-row"><div><div class="kpi-label">${label}</div>${delta}</div><div class="kpi-value">${value}</div></div>`;
+  html += `<h2 class="section-title">Personlig prestasjon</h2>
+  <section class="card kpi-card">
+    ${kpi('Fullførte økter', cur.length, prev ? deltaHtml(cur.length, prev.length, p.prev) : '')}
+    ${kpi('Treningstid', fmtMinutes(mins(cur)), prev ? deltaHtml(mins(cur), mins(prev), p.prev, fmtMinutes) : '')}
+    ${kpi('Nye rekorder', recIn(from, to), prev ? deltaHtml(recIn(from, to), recIn(prevFrom, prevTo), p.prev) : '')}
+  </section>
+  <section class="card"><div class="chart-title">Økter per uke</div><div class="chart-sub">Siste 12 uker</div><div class="chart-wrap" id="week-chart"></div></section>`;
+  // 2. Treningsfordeling
+  const dist = distribution(cur);
+  const mode = statsUI.dist === 'cardio' ? 'cardio' : 'strength';
+  html += `<h2 class="section-title">Treningsfordeling</h2>
+  <section class="card">
+    <div class="seg-toggle" role="group" aria-label="Type trening" style="margin-top:0">
+      <button type="button" data-act="stats-dist" data-v="strength" aria-pressed="${mode === 'strength'}">Styrke</button>
+      <button type="button" data-act="stats-dist" data-v="cardio" aria-pressed="${mode === 'cardio'}">Kondisjon</button>
+    </div>`;
+  if (mode === 'strength') {
+    const rows = CATEGORIES.filter((c) => c !== 'Kondisjon' && dist.cats[c])
+      .map((c) => ({ label: c, v: dist.cats[c].sets, text: `${dist.cats[c].sets} sett · ${dist.cats[c].ex} øv.` }))
+      .sort((a, b) => b.v - a.v);
+    html += rows.length
+      ? `<p class="chart-sub" style="margin:12px 0 2px">Arbeidssett og øvelser per muskelgruppe</p>${hbars(rows)}`
+      : `<p class="small muted" style="margin-top:12px">Ingen styrkeøkter i perioden.</p>`;
+  } else {
+    const rows = PURPOSES.filter((x) => dist.purposes[x.k]).map((x) => {
+      const d = dist.purposes[x.k];
+      return { label: x.l, v: d.n, text: `${d.n} økt${d.n === 1 ? '' : 'er'}${d.sec ? ` · ${fmtMinutes(d.sec / 60)}` : ''}` };
+    }).sort((a, b) => b.v - a.v);
+    html += rows.length
+      ? `<p class="chart-sub" style="margin:12px 0 2px">Antall økter og tid per type økt</p>${hbars(rows)}`
+      : `<p class="small muted" style="margin-top:12px">Ingen kondisjonsøkter i perioden.</p>`;
+  }
+  html += `</section>`;
+
+  // 3. Muskelgruppeanalyse
+  const hasMuscles = Object.keys(dist.muscles).length > 0;
+  html += `<h2 class="section-title">Muskelgruppeanalyse</h2>
+  <section class="card muscle-card">
+    ${bodyFigure(dist.muscles)}
+    <div class="muscle-legend"><span>Mindre trent</span><span class="muscle-scale"></span><span>Mer trent</span></div>
+    <p class="muscle-info" data-muscle-info>${hasMuscles ? 'Trykk på en muskel for å se antall sett.' : 'Ingen styrketrening i perioden.'}</p>
+    <details class="table-toggle"><summary>Vis som tabell</summary>
+      <table class="data"><thead><tr><th>Muskelgruppe</th><th class="num">Arbeidssett</th></tr></thead><tbody>
+      ${MUSCLES.map(([k, n]) => ({ n, v: dist.muscles[k] || 0 })).sort((a, b) => b.v - a.v).map((r) => `<tr><td>${esc(r.n)}</td><td class="num">${fmtNum(r.v, 1)}</td></tr>`).join('')}
+      </tbody></table></details>
+  </section>`;
+
+  // Fremgang per øvelse
+  html += `<h2 class="section-title">Fremgang per øvelse</h2><section class="card" style="padding:4px 14px">`;
+  const exs = [...used.keys()].map(exById).sort((a, b) => used.get(b.id) - used.get(a.id));
+  html += exs.map((e) => {
+    const hist = historyFor(e.id);
+    const last = hist[hist.length - 1];
+    return `<a class="ex-option" style="text-decoration:none;color:inherit" href="#/statistikk/${encodeURIComponent(e.id)}">
+      <span>${esc(e.name)}<br><span class="small muted">${last ? esc(entrySummary(last.en)) : ''}</span></span>
+      <span class="kind">${used.get(e.id)}×</span></a>`;
+  }).join('');
+  html += `</section>`;
+
+  view().innerHTML = html;
+  drawWeekChart($('#week-chart'));
+}
+
+/* ---------- Kroppsfigur forfra og bakfra ----------
+   Hver muskel er en egen form med data-muscle. Fargen går fra lys (lite trent)
+   til kraftig aksentfarge (mye trent), relativt til den mest trente muskelen. */
+function bodyFigure(load) {
+  const max = Math.max(0, ...Object.values(load));
+  const fill = (m) => {
+    const v = load[m] || 0;
+    if (!v || !max) return '';
+    const t = v / max;
+    return ` style="fill: color-mix(in oklab, var(--accent) ${Math.round(22 + 78 * t)}%, white)"`;
+  };
+  const mus = (m, d) => `<path class="mus${load[m] ? ' on' : ''}" data-act="muscle" data-muscle="${m}" d="${d}"${fill(m)}/>`;
+  // Speiler en form om midtlinja x = 60
+  const mirror = (d) => d.replace(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g, (_, x, y) => `${120 - x},${y}`);
+  const pair = (m, d) => mus(m, d) + mus(m, mirror(d));
+  const base = (d) => `<path class="body-base" d="${d}"/>`;
+  const head = `<circle class="body-base" cx="60" cy="17" r="11"/>` + base('M54,27 L66,27 L67,35 L53,35 Z');
+  // Hel silhuett (venstre halvdel + speilet høyre) under musklene, så mellomrommene får kroppens farge
+  const SIL = 'M60,27 L54,27 L53,35 Q40,36 31,42 Q25,48 26,60 L24,84 Q21,96 22,106 Q22,116 27,117 Q32,116 32,108 L34,88 Q37,76 40,66 L43,60 Q44,80 45,100 Q42,108 43,116 L41,150 Q40,166 45,176 L44,200 Q44,214 45,224 Q43,230 51,231 Q57,231 56,224 L57,200 Q58,186 57,176 Q60,150 59,118 L60,114 Z';
+  const silhouette = `<g class="body-sil">${base(SIL)}${base(mirror(SIL))}</g>`;
+  const limbsBase = silhouette + base('M24,106 Q22,112 26,116 Q31,117 33,111 L32,104 Z') + base(mirror('M24,106 Q22,112 26,116 Q31,117 33,111 L32,104 Z'))
+    + base('M45,224 Q43,230 51,231 Q57,231 56,224 Z') + base(mirror('M45,224 Q43,230 51,231 Q57,231 56,224 Z'));
+
+  const front = head + limbsBase
+    + pair('shoulders', 'M44,38 Q34,38 30,46 Q29,54 33,58 L42,52 Q46,45 50,41 Z')
+    + pair('chest', 'M59,40 L50,41 Q44,46 43,54 Q45,62 52,64 Q57,64 59,61 Z')
+    + pair('biceps', 'M31,59 Q27,66 28,76 Q31,82 35,80 Q38,72 40,63 L33,58 Z')
+    + pair('forearms', 'M28,80 Q24,90 24,104 L32,105 Q36,94 36,82 Z')
+    + mus('abs', 'M52,66 Q60,68 68,66 L69,98 Q60,106 51,98 Z')
+    + pair('abs', 'M44,60 Q42,80 46,100 L50,98 L51,66 Z')
+    + base('M46,100 Q60,112 74,100 L76,112 Q60,120 44,112 Z')
+    + pair('quads', 'M44,113 Q39,140 45,168 Q51,173 57,168 Q60,142 58,118 Z')
+    + base('M46,170 Q51,177 56,170 L56,176 Q51,180 46,176 Z') + base(mirror('M46,170 Q51,177 56,170 L56,176 Q51,180 46,176 Z'))
+    + pair('calves', 'M46,179 Q44,200 47,222 L54,222 Q57,200 56,179 Z');
+
+  const back = head + limbsBase
+    + mus('upperback', 'M60,30 L48,38 Q46,44 50,48 L60,66 L70,48 Q74,44 72,38 Z')
+    + pair('shoulders', 'M44,38 Q34,38 30,46 Q29,54 33,58 L42,52 Q45,45 48,40 Z')
+    + pair('lats', 'M49,50 Q42,62 45,86 Q50,92 57,88 L59,68 Z')
+    + mus('lowerback', 'M51,88 Q60,92 69,88 L70,102 Q60,106 50,102 Z')
+    + pair('triceps', 'M31,59 Q27,66 28,76 Q31,82 35,80 Q38,72 40,63 L33,58 Z')
+    + pair('forearms', 'M28,80 Q24,90 24,104 L32,105 Q36,94 36,82 Z')
+    + pair('glutes', 'M45,103 Q42,116 47,124 Q54,127 59,121 L59,105 Q52,107 45,103 Z')
+    + pair('hamstrings', 'M45,126 Q41,148 46,168 Q51,172 57,168 Q59,146 58,126 Q52,129 45,126 Z')
+    + base('M46,170 Q51,177 56,170 L56,176 Q51,180 46,176 Z') + base(mirror('M46,170 Q51,177 56,170 L56,176 Q51,180 46,176 Z'))
+    + pair('calves', 'M45,179 Q42,196 46,212 Q51,218 55,212 Q58,196 56,179 Z')
+    + base('M47,213 L55,213 L55,222 L47,222 Z') + base(mirror('M47,213 L55,213 L55,222 L47,222 Z'));
+
+  return `<div class="body-fig" role="img" aria-label="Muskelgrupper forfra og bakfra, farget etter hvor mye de er trent">
+    <figure><svg viewBox="16 0 88 236">${front}</svg><figcaption>Forfra</figcaption></figure>
+    <figure><svg viewBox="16 0 88 236">${back}</svg><figcaption>Bakfra</figcaption></figure>
+  </div>`;
+}
 
 function renderStats(exId) {
   const used = new Map();
   for (const w of db.workouts) for (const e of w.entries) used.set(e.exerciseId, (used.get(e.exerciseId) || 0) + 1);
 
-  if (!exId) {
-    setHeader('Statistikk');
-    let html = `<section class="card"><div class="chart-title">Økter per uke</div><div class="chart-sub">Siste 12 uker</div><div class="chart-wrap" id="week-chart"></div></section>`;
-    if (!used.size) {
-      html += `<div class="empty"><p>Ingen data ennå.</p></div>`;
-    } else {
-      html += `<h2 class="section-title">Velg øvelse</h2><section class="card" style="padding:4px 14px">`;
-      const exs = [...used.keys()].map(exById).sort((a, b) => used.get(b.id) - used.get(a.id));
-      html += exs.map((e) => {
-        const hist = historyFor(e.id);
-        const last = hist[hist.length - 1];
-        return `<a class="ex-option" style="text-decoration:none;color:inherit" href="#/statistikk/${encodeURIComponent(e.id)}">
-          <span>${esc(e.name)}<br><span class="small muted">${last ? esc(entrySummary(last.en)) : ''}</span></span>
-          <span class="kind">${used.get(e.id)}×</span></a>`;
-      }).join('');
-      html += `</section>`;
-    }
-    view().innerHTML = html;
-    drawWeekChart($('#week-chart'));
-    return;
-  }
+  if (!exId) { renderStatsOverview(used); return; }
 
   const ex = exById(exId);
   setHeader(ex.name, '#/statistikk');
@@ -2225,8 +2727,8 @@ function renderMore() {
     ${installPromptEvent ? `<button class="btn secondary block" data-act="install">Installer appen</button>` : ''}
 
     <h2 class="section-title">Faresone</h2>
-    <section class="card"><button class="btn danger block" data-act="wipe">Slett alle data</button></section>
-    <p class="small muted" style="text-align:center;margin-top:18px">Treningsloggen · versjon 2.5</p>`;
+    <section class="card"><button class="btn danger block btn-destructive" style="margin-top:0" data-act="wipe">Slett alle data</button></section>
+    <p class="small muted" style="text-align:center;margin-top:18px">Treningsloggen · versjon 2.6</p>`;
 }
 
 function renderExercises() {
@@ -2655,10 +3157,13 @@ const actions = {
   'save-workout': saveWorkout,
   'confirm-yes': () => answerConfirm(true),
   'confirm-no': () => answerConfirm(false),
-  discard: () => {
-    // Forkast med en gang, men la brukeren angre i noen sekunder
+  discard: async () => {
+    // Spør først, og la brukeren angre i noen sekunder etterpå
     const draft = db.draft;
     if (!draft) return;
+    const ok = await askConfirm('', {
+      title: draft.id ? 'Sikker på at du vil forkaste endringene?' : 'Sikker på at du vil forkaste økta?', ok: 'Ja', cancel: 'Nei', danger: true });
+    if (!ok) return;
     db.draft = null;
     save();
     location.hash = draft.id ? `#/okt/${encodeURIComponent(draft.id)}` : '#/';
@@ -2695,7 +3200,10 @@ const actions = {
     goToEditor();
     toast('Samme øvelser som sist – verdiene fra forrige gang vises som hint');
   },
-  'delete-workout': (el) => deleteWorkout(el.dataset.id),
+  'delete-workout': async (el) => {
+    if (!(await askConfirm('', { title: 'Sikker på at du vil slette økta?', ok: 'Ja', cancel: 'Nei', danger: true }))) return;
+    deleteWorkout(el.dataset.id);
+  },
   'toast-action': () => {
     const a = toastAction;
     toastAction = null;
@@ -2717,10 +3225,8 @@ const actions = {
         <button class="danger" data-act="delete-workout" data-id="${esc(w.id)}">Slett økt</button>
       </div>`);
   },
-  'set-theme': (el) => {
-    setTheme(el.dataset.v);
-    el.parentElement.querySelectorAll('[data-act="set-theme"]').forEach((b) => b.setAttribute('aria-pressed', b === el));
-  },
+  'set-theme': (el) => { setAppearance(el.dataset.v, savedMode()); renderAppearance(); },
+  'set-mode': (el) => { setAppearance(currentTheme(), el.dataset.v); renderAppearance(); },
   'dur-mode': (el) => {
     db.draft.durationMode = el.dataset.v;
     save();
@@ -2765,6 +3271,16 @@ const actions = {
     el.parentElement.innerHTML = draftFolderChips(db.draft);
   },
   'new-folder': (el) => openFolderForm(el.dataset.ctx),
+  'hist-date': (el) => { histUI.dateMode = el.dataset.v; histUI.filterOpen = true; renderHistory(); },
+  'hist-filter-toggle': () => {
+    const dateOn = (histUI.dateMode === 'day' && histUI.day) || (histUI.dateMode === 'range' && (histUI.from || histUI.to));
+    // Lukker man filteret mens det er i bruk, nullstilles datoene
+    if ((histUI.filterOpen || dateOn)) Object.assign(histUI, { filterOpen: false, dateMode: 'all', day: '', from: '', to: '' });
+    else histUI.filterOpen = true;
+    renderHistory();
+  },
+  'hist-order': () => { histUI.order = histUI.order === 'desc' ? 'asc' : 'desc'; renderHistory(); },
+  'hist-reset': () => { Object.assign(histUI, { q: '', dateMode: 'all', day: '', from: '', to: '', filterOpen: false }); renderHistory(); },
   'hist-mode': (el) => {
     histUI.mode = el.dataset.v;
     try { localStorage.setItem('treningslogg.histmode', histUI.mode); } catch {}
@@ -2796,6 +3312,17 @@ const actions = {
   },
   'open-workout': (el) => { location.hash = `#/okt/${encodeURIComponent(el.dataset.id)}`; },
   metric: (el) => { statsUI.metric[el.dataset.ex] = el.dataset.k; renderStats(el.dataset.ex); },
+  'stats-period': (el) => { statsUI.period = el.dataset.v; const y = window.scrollY; renderStats(); window.scrollTo(0, y); },
+  'stats-dist': (el) => { statsUI.dist = el.dataset.v; const y = window.scrollY; renderStats(); window.scrollTo(0, y); },
+  muscle: (el) => {
+    const m = el.dataset.muscle;
+    document.querySelectorAll('.body-fig .mus.sel').forEach((p) => p.classList.remove('sel'));
+    document.querySelectorAll(`.body-fig [data-muscle="${m}"]`).forEach((p) => p.classList.add('sel'));
+    const { from, to } = periodRange(statsUI.period || 'month');
+    const v = distribution(workoutsBetween(from, to)).muscles[m] || 0;
+    const info = $('[data-muscle-info]');
+    if (info) info.innerHTML = `<b>${esc(muscleName(m))}</b> · ${v ? `${fmtNum(v, 1)} arbeidssett` : 'ikke trent i perioden'}`;
+  },
   'purpose-filter': (el) => { statsUI.purpose[el.dataset.ex] = el.dataset.v; renderStats(el.dataset.ex); },
   'stats-weight': (el) => { statsUI.weight[el.dataset.ex] = +el.dataset.v; renderStats(el.dataset.ex); },
   'ex-menu': (el) => {
@@ -2858,6 +3385,7 @@ document.addEventListener('input', (ev) => {
   const t = ev.target;
   if (t.matches('[data-search]')) { renderPickerList(t.value); return; }
   if (t.matches('[data-tpl-name]')) { if (tplDraft) tplDraft.name = t.value; return; }
+  if (t.matches('[data-hist-q]')) { histUI.q = t.value; renderHistoryResults(); return; }
   const d = db.draft;
   if (!d) return;
   if (t.dataset.w) {
@@ -2921,6 +3449,7 @@ document.addEventListener('keydown', (ev) => {
 });
 
 document.addEventListener('change', (ev) => {
+  if (ev.target.matches('[data-hist-f]')) { histUI[ev.target.dataset.histF] = ev.target.value; renderHistory(); return; }
   if (ev.target.matches('[data-import]') && ev.target.files[0]) importData(ev.target.files[0]);
 });
 

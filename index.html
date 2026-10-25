@@ -28,14 +28,26 @@
   </script>
   <link rel="stylesheet" href="styles.css">
   <script>
-    // Sett fargetema før siden tegnes, så det ikke blinker i feil farge
+    // Sett farge og modus før siden tegnes, så det ikke blinker i feil farge.
+    // Modus: "dark" | "light" | "auto" (følger telefonen). Standard: mørk oransje.
     (function () {
-      var t = "orange";
-      try { t = localStorage.getItem("treningslogg.theme") || "orange"; } catch (e) {}
-      var bg = { orange: "#151515", blue: "#f6f8fc", mint: "#0d1714" };
-      if (!bg[t]) t = "orange";
-      document.documentElement.dataset.theme = t;
-      document.querySelector('meta[name="theme-color"]').setAttribute("content", bg[t]);
+      var t = "orange", m = null;
+      try { t = localStorage.getItem("treningslogg.theme") || "orange"; m = localStorage.getItem("treningslogg.mode"); } catch (e) {}
+      if (["orange", "blue", "mint"].indexOf(t) < 0) t = "orange";
+      // Fra forrige versjon var «Lys blå» et lyst tema – behold det utseendet
+      if (!m) m = t === "blue" ? "light" : "dark";
+      var mq = window.matchMedia && matchMedia("(prefers-color-scheme: light)");
+      function apply() {
+        var mode = m === "auto" ? (mq && mq.matches ? "light" : "dark") : m;
+        var el = document.documentElement;
+        el.dataset.theme = t;
+        el.dataset.mode = mode;
+        var bg = mode === "light" ? "#f6f8fc" : t === "mint" ? "#0d1714" : "#151515";
+        document.querySelector('meta[name="theme-color"]').setAttribute("content", bg);
+      }
+      apply();
+      window.__applyAppearance = function (theme, mode) { t = theme; m = mode; apply(); };
+      if (mq && mq.addEventListener) mq.addEventListener("change", function () { if (m === "auto") apply(); });
     })();
   </script>
   <title>Treningsloggen</title>
