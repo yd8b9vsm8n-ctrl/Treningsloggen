@@ -66,6 +66,9 @@ const DEFAULT_EXERCISES = [
   S('farmers', 'Farmers carry', 'Funksjonell styrketrening', { measure: 'distance' }),
   S('sledpush', 'Sled push', 'Funksjonell styrketrening', { measure: 'distance' }),
   S('sledpull', 'Sled pull', 'Funksjonell styrketrening', { measure: 'distance' }),
+  S('walklunge', 'Gående utfall', 'Funksjonell styrketrening', { measure: 'distance' }),
+  S('wallballs', 'Wall balls', 'Funksjonell styrketrening'),
+  S('burpees', 'Burpees', 'Funksjonell styrketrening'),
 
   C('mole', 'Tredemølle', { distance: true, unit: 'km', speed: 'kmh', fields: ['incline'], pace: true }),
   C('spinning', 'Spinningsykkel', { distance: true, unit: 'km', speed: 'kmh', fields: ['watt', 'level'] }),
@@ -560,7 +563,7 @@ function setHeader(title, back, subtitle) {
   s.hidden = !subtitle;
   const b = $('#back-btn');
   b.hidden = !back;
-  b.onclick = back ? () => (location.hash = back) : null;
+  b.onclick = back ? () => { backNav = true; location.hash = back; } : null;
 }
 function greeting() {
   const h = new Date().getHours();
@@ -666,7 +669,17 @@ function setAppearance(theme, mode) {
 /* =========================================================
    Router
    ========================================================= */
+// Husker forrige side og hvor langt ned man var, så tilbake-pila tar deg til samme sted
+let routeFrom = '', curHash = location.hash, backNav = false;
+const scrollMem = {};
 function route() {
+  if (curHash !== location.hash) {
+    scrollMem[curHash] = window.scrollY;
+    routeFrom = curHash || '#/';
+    curHash = location.hash;
+  }
+  const restore = backNav ? scrollMem[location.hash] : 0;
+  backNav = false;
   closeSheet();
   const parts = (location.hash.slice(2) || '').split('/').map(decodeURIComponent);
   const [page, arg] = parts;
@@ -691,7 +704,7 @@ function route() {
     case 'favoritt': renderTemplateEditor(arg); break;
     default: renderHome();
   }
-  window.scrollTo(0, 0);
+  window.scrollTo(0, restore || 0);
   onScroll();
 }
 window.addEventListener('hashchange', route);
@@ -1635,9 +1648,16 @@ function openNewExerciseForm(name, onDone, existing) {
         ${locked ? '<p class="small muted" style="margin-top:6px">Typen kan ikke endres fordi øvelsen allerede er brukt.</p>' : ''}
       </div>
 
+      <label class="field">Kategori<select name="cat">${CATEGORIES.map((c) => `<option ${c === e.cat ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
+
       <div data-show="strength" ${e.kind === 'strength' ? '' : 'hidden'}>
         <label class="field">Måles i</label>
         ${choice('measure', exMeasure(e), [['reps', 'Vekt og repetisjoner'], ['time', 'Tid (sek), f.eks. planke'], ['distance', 'Vekt og lengde (m), f.eks. sled push']])}
+      </div>
+
+      <div data-show="strength" ${e.kind === 'strength' ? '' : 'hidden'}>
+        <label class="field">Muskelgrupper</label>
+        ${musclePicker(e)}
       </div>
 
       <div data-show="cardio" class="stack" ${e.kind === 'cardio' ? '' : 'hidden'}>
@@ -1656,7 +1676,6 @@ function openNewExerciseForm(name, onDone, existing) {
           <input type="hidden" name="fields" value="${cfg.fields.join(',')}"></div>
       </div>
 
-      <label class="field">Kategori<select name="cat">${CATEGORIES.map((c) => `<option ${c === e.cat ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
       <button class="btn primary block big" type="submit">${existing ? 'Lagre' : 'Lag øvelse'}</button>
     </form></div>`);
   setTimeout(() => $('#sheet-root input[name="name"]')?.focus(), 50);
@@ -1678,7 +1697,32 @@ function formExerciseProps(form, kind) {
       },
     };
   }
-  return { measure: f.measure.value === 'reps' ? undefined : f.measure.value, timed: undefined, cfg: undefined, extra: undefined };
+  // Muskler lagres bare når brukeren har valgt selv; ellers brukes standardoppsettet eller kategorien
+  const touched = form.querySelector('[data-muscles]')?.dataset.touched === '1';
+  return { measure: f.measure.value === 'reps' ? undefined : f.measure.value, timed: undefined, cfg: undefined, extra: undefined, muscles: touched ? parseMuscles(f.muscles.value) : undefined };
+}
+// Muskelvalg i øvelsesskjemaet: ett trykk = hovedmuskel, to = hjelpemuskel, tre = av
+const muscleValue = (map) => Object.entries(map).map(([m, f]) => `${m}:${f}`).join(',');
+function parseMuscles(v) {
+  const map = {};
+  for (const part of String(v || '').split(',')) {
+    const [m, f] = part.split(':');
+    if (MUSCLES.some(([k]) => k === m) && (+f === 1 || +f === 0.5)) map[m] = +f;
+  }
+  return Object.keys(map).length ? map : undefined;
+}
+function muscleChips(map) {
+  return MUSCLES.map(([k, l]) => {
+    const lvl = map[k] === 1 ? 'primary' : map[k] === 0.5 ? 'secondary' : '';
+    return `<button type="button" class="chip mchip" data-act="muscle-pick" data-v="${k}" data-lvl="${lvl}" aria-pressed="${!!lvl}">${l}</button>`;
+  }).join('');
+}
+function musclePicker(e) {
+  const own = !!(e.muscles && Object.keys(e.muscles).length);
+  const map = e.kind === 'strength' ? musclesFor(e) : {};
+  return `<div class="muscle-pick-legend small muted"><span><i class="mdot primary"></i>Hovedmuskel</span><span><i class="mdot secondary"></i>Hjelpemuskel</span><span>Trykk for å bytte</span></div>
+    <div class="chips" style="margin-top:6px" data-muscles data-touched="${own ? '1' : ''}">${muscleChips(map)}</div>
+    <input type="hidden" name="muscles" value="${muscleValue(map)}">`;
 }
 const isUsed = (exId) => db.workouts.some((w) => w.entries.some((e) => e.exerciseId === exId));
 
@@ -1980,8 +2024,7 @@ function renderHistory() {
   }
 
   // Alle økter: kompakt søk, datofilter (sammenleggbart) og rekkefølge
-  const dm = histUI.dateMode;
-  const dateOn = (dm === 'day' && histUI.day) || (dm === 'range' && (histUI.from || histUI.to));
+  const dateOn = histDateOn();
   html += `<div class="hist-tools">
       <label class="hist-search">
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 16l4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -1989,30 +2032,45 @@ function renderHistory() {
       </label>
       <button type="button" class="tool-btn" data-act="hist-filter-toggle" aria-pressed="${!!(histUI.filterOpen || dateOn)}" aria-label="Datofilter" title="Datofilter">
         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 10h16M9 3v4M15 3v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        ${dateOn ? '<span class="tool-dot" aria-hidden="true"></span>' : ''}
+        <span class="tool-dot" aria-hidden="true"${dateOn ? '' : ' hidden'}></span>
       </button>
       <button type="button" class="tool-btn" data-act="hist-order" aria-label="${histUI.order === 'desc' ? 'Nyeste først – trykk for eldste først' : 'Eldste først – trykk for nyeste først'}" title="${histUI.order === 'desc' ? 'Nyeste først' : 'Eldste først'}">
         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="${histUI.order === 'desc' ? 'M8 4v16M8 20l-3-3M8 20l3-3M14 6h6M14 11h4M14 16h2' : 'M8 20V4M8 4L5 7M8 4l3 3M14 6h2M14 11h4M14 16h6'}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
-    </div>`;
-  if (histUI.filterOpen || dateOn) {
-    html += `<div class="hist-dates">
-      <div class="seg-toggle three mini3" role="group" aria-label="Dato">
-        <button type="button" data-act="hist-date" data-v="all" aria-pressed="${dm === 'all'}">Alle</button>
-        <button type="button" data-act="hist-date" data-v="day" aria-pressed="${dm === 'day'}">Dato</button>
-        <button type="button" data-act="hist-date" data-v="range" aria-pressed="${dm === 'range'}">Periode</button>
-      </div>
-      ${dm === 'day' ? `<input type="date" data-hist-f="day" value="${esc(histUI.day)}" max="${todayISO()}" aria-label="Dato">` : ''}
-      ${dm === 'range' ? `<div class="cardio-grid" style="margin-top:0">
-          <label class="field">Fra<input type="date" data-hist-f="from" value="${esc(histUI.from)}" max="${todayISO()}"></label>
-          <label class="field">Til<input type="date" data-hist-f="to" value="${esc(histUI.to)}" max="${todayISO()}"></label>
-        </div>` : ''}
-    </div>`;
-  }
+    </div>
+    <div class="hist-dates-wrap${histUI.filterOpen || dateOn ? ' open' : ''}"><div class="hist-dates">${histDatesInner()}</div></div>`;
   html += `<div class="hist-meta small muted"><span data-hist-count></span><button type="button" class="link-btn" data-act="hist-reset" data-hist-reset hidden>Nullstill</button></div>
     <div id="hist-results"></div>`;
   view().innerHTML = html;
   drawTrendChart();
+  renderHistoryResults();
+}
+
+// Datofilteret: innholdet byttes på stedet, så panelet glir opp/ned uten at hele siden tegnes på nytt
+const histDateOn = () => !!((histUI.dateMode === 'day' && histUI.day) || (histUI.dateMode === 'range' && (histUI.from || histUI.to)));
+function histDatesInner() {
+  const dm = histUI.dateMode;
+  return `<div class="seg-toggle mini3" style="margin-top:0" role="group" aria-label="Dato">
+      <button type="button" data-act="hist-date" data-v="day" aria-pressed="${dm === 'day'}">Dato</button>
+      <button type="button" data-act="hist-date" data-v="range" aria-pressed="${dm === 'range'}">Periode</button>
+    </div>
+    ${dm === 'day' ? `<input type="date" data-hist-f="day" value="${esc(histUI.day)}" max="${todayISO()}" aria-label="Dato">` : ''}
+    ${dm === 'range' ? `<div class="cardio-grid" style="margin-top:0">
+        <label class="field">Fra<input type="date" data-hist-f="from" value="${esc(histUI.from)}" max="${todayISO()}"></label>
+        <label class="field">Til<input type="date" data-hist-f="to" value="${esc(histUI.to)}" max="${todayISO()}"></label>
+      </div>` : ''}`;
+}
+function updateHistDates(rebuild) {
+  const wrap = $('.hist-dates-wrap');
+  if (!wrap) return renderHistory();
+  const on = histDateOn();
+  const open = !!(histUI.filterOpen || on);
+  if (rebuild) wrap.firstElementChild.innerHTML = histDatesInner();
+  else if (histUI.dateMode !== 'all') wrap.querySelectorAll('[data-act="hist-date"]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === histUI.dateMode)));
+  wrap.classList.toggle('open', open);
+  const btn = $('[data-act="hist-filter-toggle"]');
+  btn.setAttribute('aria-pressed', String(open));
+  btn.querySelector('.tool-dot').hidden = !on;
   renderHistoryResults();
 }
 
@@ -2093,7 +2151,7 @@ function openMoveSheet(workoutId) {
 /* =========================================================
    Statistikk
    ========================================================= */
-const statsUI = { metric: {}, purpose: {}, weight: {}, period: 'month', dist: 'strength' };
+const statsUI = { metric: {}, purpose: {}, weight: {}, period: 'month', dist: 'strength', progQ: '' };
 
 /* =========================================================
    Statistikk – oversikt i kategorier
@@ -2200,6 +2258,9 @@ const EX_MUSCLES = {
   farmers: { forearms: 1, upperback: 1, glutes: 0.5, quads: 0.5, abs: 0.5 },
   sledpush: { quads: 1, glutes: 1, calves: 0.5 },
   sledpull: { hamstrings: 1, glutes: 1, upperback: 0.5 },
+  walklunge: { quads: 1, glutes: 1, hamstrings: 0.5, abs: 0.5 },
+  wallballs: { quads: 1, glutes: 1, shoulders: 1, triceps: 0.5, abs: 0.5 },
+  burpees: { chest: 1, quads: 1, shoulders: 0.5, triceps: 0.5, abs: 0.5, glutes: 0.5 },
 };
 // Egne øvelser: muskler ut fra mappen de ligger i
 const CAT_MUSCLES = {
@@ -2211,7 +2272,7 @@ const CAT_MUSCLES = {
   Mage: { abs: 1 },
   'Funksjonell styrketrening': { quads: 0.5, glutes: 0.5, upperback: 0.5, abs: 0.5 },
 };
-const musclesFor = (ex) => EX_MUSCLES[ex.id] || CAT_MUSCLES[ex.cat] || {};
+const musclesFor = (ex) => (ex.muscles && Object.keys(ex.muscles).length ? ex.muscles : EX_MUSCLES[ex.id] || CAT_MUSCLES[ex.cat] || {});
 
 // Arbeidssett i en styrkeøvelse: fullførte sett (reps, tid eller lengde) eller forsøk i 1RM-test
 function workSets(en) {
@@ -2268,6 +2329,168 @@ function hbars(rows) {
     </div>`).join('')}</div>`;
 }
 
+// Fremgang per øvelse: mapper per kategori, eller treff direkte når man søker
+function progressList(used) {
+  const q = (statsUI.progQ || '').trim().toLowerCase();
+  const exs = [...used.keys()].map(exById).filter((e) => !q || e.name.toLowerCase().includes(q));
+  if (!exs.length) return `<div class="empty"><p>Ingen øvelser passer søket.</p></div>`;
+  const row = (e) => {
+    const hist = historyFor(e.id);
+    const last = hist[hist.length - 1];
+    return `<a class="ex-option" style="text-decoration:none;color:inherit" href="#/statistikk/${encodeURIComponent(e.id)}">
+      <span>${q ? markMatch(e.name, q) : esc(e.name)}<br><span class="small muted">${last ? esc(entrySummary(last.en)) : ''}</span></span>
+      <span class="kind">${used.get(e.id)}×</span></a>`;
+  };
+  let html = '';
+  for (const cat of CATEGORIES) {
+    const items = exs.filter((e) => (e.cat || 'Annet') === cat).sort((a, b) => used.get(b.id) - used.get(a.id));
+    if (!items.length) continue;
+    html += q ? `<div class="ex-group">${esc(cat)}</div>${items.map(row).join('')}` : folder('prog-' + cat, cat, items.length, items.map(row).join(''));
+  }
+  return q ? `<section class="card" style="padding:4px 14px">${html}</section>` : `<div class="folder-list">${html}</div>`;
+}
+function renderProgressList() {
+  const box = $('#prog-list');
+  if (!box) return;
+  const used = new Map();
+  for (const w of db.workouts) for (const e of w.entries) used.set(e.exerciseId, (used.get(e.exerciseId) || 0) + 1);
+  box.innerHTML = progressList(used);
+}
+
+// Formen i perioden: smultringdiagram over hvordan øktene kjentes (emojiene fra registreringen)
+function formCard(ws, prevWs, p) {
+  const rated = ws.filter((w) => w.feeling);
+  const head = `<div class="chart-title">Form</div><div class="chart-sub">Hvordan øktene har kjentes</div>`;
+  if (!rated.length) {
+    return `<section class="card">${head}<p class="small muted" style="margin-top:10px">Ingen økter med registrert form i perioden. Velg hvordan økta gikk når du lagrer den.</p></section>`;
+  }
+  const n = rated.length;
+  const avg = rated.reduce((s, w) => s + w.feeling, 0) / n;
+  // Ordnet skala: tung = svak farge, knall = full aksentfarge
+  const color = (i) => `color-mix(in oklab, var(--accent) ${18 + i * 20.5}%, var(--surface-2))`;
+  const rows = FEELINGS.map((f, i) => ({ ...f, c: color(i), k: rated.filter((w) => w.feeling === f.v).length }));
+  const R = 42, C = 2 * Math.PI * R, used = rows.filter((r) => r.k);
+  const gap = used.length > 1 ? 2.5 : 0;
+  let off = 0;
+  const arcs = rows.map((r) => {
+    if (!r.k) return '';
+    const len = (r.k / n) * C;
+    const arc = `<circle cx="60" cy="60" r="${R}" fill="none" stroke="${r.c}" stroke-width="14" stroke-dasharray="${Math.max(0.5, len - gap)} ${C}" stroke-dashoffset="${-off}"><title>${r.l}: ${r.k}</title></circle>`;
+    off += len;
+    return arc;
+  }).join('');
+  const mid = FEELINGS[Math.min(4, Math.max(0, Math.round(avg) - 1))];
+  let change = '';
+  const prevRated = (prevWs || []).filter((w) => w.feeling);
+  if (prevRated.length) {
+    const d = avg - prevRated.reduce((s, w) => s + w.feeling, 0) / prevRated.length;
+    change = Math.abs(d) < 0.25 ? `<span class="delta flat">→ Omtrent som ${p.prev}</span>`
+      : d > 0 ? `<span class="delta up">↑ Bedre form enn ${p.prev}</span>` : `<span class="delta down">↓ Tyngre enn ${p.prev}</span>`;
+  }
+  return `<section class="card">${head}
+    <div class="form-wrap">
+      <div class="donut"><svg viewBox="0 0 120 120" role="img" aria-label="Fordeling av form: ${rows.filter((r) => r.k).map((r) => `${r.l} ${r.k}`).join(', ')}">
+        <circle cx="60" cy="60" r="${R}" fill="none" class="donut-track" stroke-width="14"/>
+        <g transform="rotate(-90 60 60)">${arcs}</g></svg>
+        <div class="donut-mid"><span class="donut-emoji">${mid.e}</span></div>
+      </div>
+      <ul class="form-legend">${rows.slice().reverse().map((r) => `<li class="${r.k ? '' : 'none'}">
+        <i style="background:${r.c}"></i><span>${r.e} ${r.l}</span><b>${r.k ? Math.round((r.k / n) * 100) + ' %' : '–'}</b></li>`).join('')}</ul>
+    </div>
+    <p class="form-feel">I det siste har du følt deg <b>${{ 1: 'tung', 2: 'litt tung', 3: 'helt ok', 4: 'bra', 5: 'i knallform' }[mid.v]}</b>.</p>
+    <p class="small muted" style="margin-top:2px">Basert på ${n} ${n === 1 ? 'økt' : 'økter'} med registrert form</p>${change}
+  </section>`;
+}
+
+// Treningsrapport: fire korte linjer om fremgang, konsistens, rekorder og endringer i valgt periode
+function reportCard({ p, period, cur, prev, from, to, prevFrom, prevTo, recs, dist }) {
+  const rows = [];
+  const ICONS = {
+    up: 'M4 16l5-5 4 4 7-7M14 8h6v6',
+    cal: 'M5 6h14v14H5zM5 10h14M9 4v4M15 4v4M9 15l2 2 4-4',
+    trophy: 'M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8 20h8',
+    swap: 'M7 7h12l-3-3M17 17H5l3 3',
+  };
+  const row = (icon, title, tag, tone, text) => rows.push(`<div class="report-row">
+      <span class="report-ico"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="${ICONS[icon]}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <div class="report-body"><div class="report-head"><b>${title}</b>${tag ? `<span class="report-tag ${tone}">${tag}</span>` : ''}</div><p>${text}</p></div>
+    </div>`);
+  const inRange = (d, a, b) => (!a || d >= a) && d <= b;
+
+  // Fremgang: tyngste vekt i reps-sett nå, mot forrige periode (eller første gang for «siden start»)
+  const ids = new Set(cur.flatMap((w) => w.entries).map((e) => e.exerciseId)
+    .filter((id) => exById(id).kind === 'strength' && exMeasure(exById(id)) === 'reps'));
+  const gains = [];
+  for (const id of ids) {
+    const hist = historyFor(id).filter((h) => (h.en.mode || 'reps') === 'reps' && h.st.repWeight > 0);
+    const best = (list) => (list.length ? Math.max(...list.map((h) => h.st.repWeight)) : null);
+    const now = best(hist.filter((h) => inRange(h.w.date, from, to)));
+    let base = period === 'all' ? (hist[0]?.st.repWeight ?? null) : best(hist.filter((h) => inRange(h.w.date, prevFrom, prevTo)));
+    if (base == null && period !== 'all') base = best(hist.filter((h) => h.w.date < from).slice(-1));
+    // Ingenting før perioden: sammenlign med første gang i perioden
+    const inP = hist.filter((h) => inRange(h.w.date, from, to));
+    if (base == null && inP.length > 1) base = inP[0].st.repWeight;
+    if (now != null && base != null) gains.push({ id, diff: now - base });
+  }
+  const better = gains.filter((g) => g.diff > 0).sort((a, b) => b.diff - a.diff);
+  if (!gains.length) row('up', 'Fremgang', '', 'flat', 'Ikke nok styrkedata til å måle fremgang ennå. Logg de samme øvelsene over tid.');
+  else if (better.length) row('up', 'Fremgang', `${better.length} av ${gains.length}`, 'up',
+    `Tyngre i ${better.length} av ${gains.length} øvelser. Størst fremgang: <b>${esc(exById(better[0].id).name)}</b> +${fmtNum(better[0].diff, 1)} kg.`);
+  else row('up', 'Fremgang', 'Stabilt', 'flat', `Samme vekter som før i ${gains.length} ${gains.length === 1 ? 'øvelse' : 'øvelser'}. Prøv å øke litt når settene kjennes lette.`);
+
+  // Konsistens: aktive uker, snitt per uke og uker på rad
+  const wk = (iso) => isoDay(weekStart(dateObj(iso)));
+  // Perioden regnes fra første økt hvis den startet senere (ny bruker skal ikke få «tomme» uker)
+  const firstIso = db.workouts.reduce((a, w) => (w.date < a ? w.date : a), to);
+  const startIso = from && from > firstIso ? from : firstIso;
+  const weeks = [];
+  for (let d = weekStart(dateObj(startIso)); isoDay(d) <= to; d.setDate(d.getDate() + 7)) weeks.push(isoDay(d));
+  const active = new Set(cur.map((w) => wk(w.date)));
+  const activeN = weeks.filter((x) => active.has(x)).length;
+  const days = Math.max(7, Math.min(p.days || Infinity, (dateObj(to) - dateObj(startIso)) / 864e5 + 1));
+  const perWeek = cur.length / (days / 7);
+  const allWeeks = new Set(db.workouts.map((w) => wk(w.date)));
+  let streak = 0;
+  const s = weekStart(new Date());
+  if (!allWeeks.has(isoDay(s))) s.setDate(s.getDate() - 7);
+  while (allWeeks.has(isoDay(s))) { streak++; s.setDate(s.getDate() - 7); }
+  const share = weeks.length ? activeN / weeks.length : 0;
+  const goal = db.profile?.weeklyGoal;
+  const goalWeeks = goal ? weeks.filter((x) => cur.filter((w) => wk(w.date) === x).length >= goal).length : 0;
+  const streakTxt = streak > 1 ? ` ${streak} uker på rad med trening.` : '';
+  if (period === 'week') row('cal', 'Konsistens', streak > 1 ? `${streak} uker på rad` : '', 'up', `${cur.length} ${cur.length === 1 ? 'økt' : 'økter'} de siste 7 dagene.${streakTxt}`);
+  else row('cal', 'Konsistens', share >= 0.85 ? 'Sterk' : share >= 0.6 ? 'Jevn' : 'Ujevn', share >= 0.85 ? 'up' : share >= 0.6 ? 'flat' : 'down',
+    `Trent i ${activeN} av ${weeks.length} uker, ${fmtNum(perWeek, 1)} økter i snitt per uke.${goal ? ` Ukemålet nådd ${goalWeeks} ${goalWeeks === 1 ? 'gang' : 'ganger'}.` : ''}${streakTxt}`);
+
+  // Rekorder
+  const r = recs.filter((x) => inRange(x.date, from, to));
+  if (r.length) {
+    const exN = new Set(r.map((x) => x.exId)).size;
+    const last = r[r.length - 1];
+    row('trophy', 'Rekorder', String(r.length), 'up', `${r.length} ${r.length === 1 ? 'ny rekord' : 'nye rekorder'} i ${exN} ${exN === 1 ? 'øvelse' : 'øvelser'}. Siste: <b>${esc(exById(last.exId).name)}</b> (${esc(shortDate(last.date))})`);
+  } else row('trophy', 'Rekorder', '0', 'flat', 'Ingen nye rekorder i perioden. De kommer når du presser litt ekstra.');
+
+  // Endringer mot forrige periode
+  const mins = (ws) => ws.reduce((a, w) => a + (w.durationMin || 0), 0);
+  if (!prev) {
+    row('swap', 'Totalt', '', 'flat', `${cur.length} økter og ${fmtMinutes(mins(cur))} trening siden ${esc(fmtDate(startIso, { day: 'numeric', month: 'long', year: 'numeric' }))}.`);
+  } else {
+    const dn = cur.length - prev.length, dm = mins(cur) - mins(prev);
+    const pd = distribution(prev).cats;
+    const moves = CATEGORIES.filter((c) => c !== 'Kondisjon')
+      .map((c) => ({ c, d: (dist.cats[c]?.sets || 0) - (pd[c]?.sets || 0) })).filter((x) => x.d).sort((a, b) => Math.abs(b.d) - Math.abs(a.d));
+    const sign = (v, f = (x) => x) => (v > 0 ? '+' : '−') + f(Math.abs(v));
+    let text = dn || dm
+      ? `${dn ? `${dn > 0 ? 'Flere' : 'Færre'} økter (${sign(dn)})` : 'Like mange økter'} og ${dm ? `${dm > 0 ? 'mer' : 'mindre'} treningstid (${sign(dm, fmtMinutes)})` : 'like mye treningstid'} enn ${p.prev}.`
+      : `Like mye trening som ${p.prev}.`;
+    if (moves.length) text += ` Største endring: ${esc(moves[0].c)} (${sign(moves[0].d)} sett).`;
+    const pct = prev.length ? Math.round((dn / prev.length) * 100) : null;
+    row('swap', 'Endringer', pct == null ? (dn ? 'Ny' : '') : (pct ? `${pct > 0 ? '+' : '−'}${Math.abs(pct)} %` : 'Uendret'), dn > 0 ? 'up' : dn < 0 ? 'down' : 'flat', text);
+  }
+
+  return `<section class="card report-card"><p class="chart-sub" style="margin:0 0 4px">${esc(p.l)}</p>${rows.join('')}</section>`;
+}
+
 function renderStatsOverview(used) {
   setHeader('Statistikk');
   if (!db.workouts.length) { view().innerHTML = `<div class="empty"><p>Ingen data ennå.</p></div>`; return; }
@@ -2279,11 +2502,13 @@ function renderStatsOverview(used) {
   const recIn = (a, b) => recs.filter((r) => (!a || r.date >= a) && r.date <= b).length;
   const mins = (ws) => ws.reduce((s, w) => s + (w.durationMin || 0), 0);
 
-  let html = `<div class="seg-toggle four period-seg" role="group" aria-label="Periode">
+  // Økter per uke øverst (fast 12 uker), deretter periodevalget som styrer resten av siden
+  let html = `<section class="card"><div class="chart-title">Økter per uke</div><div class="chart-sub">Siste 12 uker</div><div class="chart-wrap" id="week-chart"></div></section>
+  <div class="seg-toggle four period-seg" role="group" aria-label="Periode">
     ${STATS_PERIODS.map((x) => `<button type="button" data-act="stats-period" data-v="${x.k}" aria-pressed="${x.k === period}">${x.short}</button>`).join('')}
   </div>`;
 
-  // 1. Personlig prestasjon – nøkkeltall med endring mot forrige like periode
+  // 1. Personlig prestasjon – nøkkeltall med endring mot forrige like periode, og formen
   const kpi = (label, value, delta) => `<div class="kpi-row"><div><div class="kpi-label">${label}</div>${delta}</div><div class="kpi-value">${value}</div></div>`;
   html += `<h2 class="section-title">Personlig prestasjon</h2>
   <section class="card kpi-card">
@@ -2291,7 +2516,7 @@ function renderStatsOverview(used) {
     ${kpi('Treningstid', fmtMinutes(mins(cur)), prev ? deltaHtml(mins(cur), mins(prev), p.prev, fmtMinutes) : '')}
     ${kpi('Nye rekorder', recIn(from, to), prev ? deltaHtml(recIn(from, to), recIn(prevFrom, prevTo), p.prev) : '')}
   </section>
-  <section class="card"><div class="chart-title">Økter per uke</div><div class="chart-sub">Siste 12 uker</div><div class="chart-wrap" id="week-chart"></div></section>`;
+  ${formCard(cur, prev, p)}`;
   // 2. Treningsfordeling
   const dist = distribution(cur);
   const mode = statsUI.dist === 'cardio' ? 'cardio' : 'strength';
@@ -2332,17 +2557,16 @@ function renderStatsOverview(used) {
       </tbody></table></details>
   </section>`;
 
+  // 4. Treningsrapport
+  html += `<h2 class="section-title">Treningsrapport</h2>${reportCard({ p, period, cur, prev, from, to, prevFrom, prevTo, recs, dist })}`;
+
   // Fremgang per øvelse
-  html += `<h2 class="section-title">Fremgang per øvelse</h2><section class="card" style="padding:4px 14px">`;
-  const exs = [...used.keys()].map(exById).sort((a, b) => used.get(b.id) - used.get(a.id));
-  html += exs.map((e) => {
-    const hist = historyFor(e.id);
-    const last = hist[hist.length - 1];
-    return `<a class="ex-option" style="text-decoration:none;color:inherit" href="#/statistikk/${encodeURIComponent(e.id)}">
-      <span>${esc(e.name)}<br><span class="small muted">${last ? esc(entrySummary(last.en)) : ''}</span></span>
-      <span class="kind">${used.get(e.id)}×</span></a>`;
-  }).join('');
-  html += `</section>`;
+  html += `<h2 class="section-title">Fremgang per øvelse</h2>
+    <label class="hist-search prog-search">
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 16l4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input type="search" data-prog-q value="${esc(statsUI.progQ || '')}" placeholder="Søk etter øvelse" autocomplete="off" aria-label="Søk etter øvelse">
+    </label>
+    <div id="prog-list">${progressList(used)}</div>`;
 
   view().innerHTML = html;
   drawWeekChart($('#week-chart'));
@@ -2353,48 +2577,45 @@ function renderStatsOverview(used) {
    til kraftig aksentfarge (mye trent), relativt til den mest trente muskelen. */
 function bodyFigure(load) {
   const max = Math.max(0, ...Object.values(load));
+  // Én fargeskala: fra nøytral muskelfarge (lite trent) til full aksentfarge (mest trent)
   const fill = (m) => {
     const v = load[m] || 0;
     if (!v || !max) return '';
-    const t = v / max;
-    return ` style="fill: color-mix(in oklab, var(--accent) ${Math.round(22 + 78 * t)}%, white)"`;
+    return ` style="fill: color-mix(in oklab, var(--accent) ${Math.round(25 + 75 * (v / max))}%, var(--mus-empty))"`;
   };
   const mus = (m, d) => `<path class="mus${load[m] ? ' on' : ''}" data-act="muscle" data-muscle="${m}" d="${d}"${fill(m)}/>`;
   // Speiler en form om midtlinja x = 60
   const mirror = (d) => d.replace(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g, (_, x, y) => `${120 - x},${y}`);
   const pair = (m, d) => mus(m, d) + mus(m, mirror(d));
   const base = (d) => `<path class="body-base" d="${d}"/>`;
-  const head = `<circle class="body-base" cx="60" cy="17" r="11"/>` + base('M54,27 L66,27 L67,35 L53,35 Z');
-  // Hel silhuett (venstre halvdel + speilet høyre) under musklene, så mellomrommene får kroppens farge
+  // Hel silhuett (venstre halvdel + speilet høyre, med nakke, hender og føtter) under musklene
   const SIL = 'M60,27 L54,27 L53,35 Q40,36 31,42 Q25,48 26,60 L24,84 Q21,96 22,106 Q22,116 27,117 Q32,116 32,108 L34,88 Q37,76 40,66 L43,60 Q44,80 45,100 Q42,108 43,116 L41,150 Q40,166 45,176 L44,200 Q44,214 45,224 Q43,230 51,231 Q57,231 56,224 L57,200 Q58,186 57,176 Q60,150 59,118 L60,114 Z';
-  const silhouette = `<g class="body-sil">${base(SIL)}${base(mirror(SIL))}</g>`;
-  const limbsBase = silhouette + base('M24,106 Q22,112 26,116 Q31,117 33,111 L32,104 Z') + base(mirror('M24,106 Q22,112 26,116 Q31,117 33,111 L32,104 Z'))
-    + base('M45,224 Q43,230 51,231 Q57,231 56,224 Z') + base(mirror('M45,224 Q43,230 51,231 Q57,231 56,224 Z'));
+  const body = `<circle class="body-base" cx="60" cy="16" r="10.5"/>${base(SIL)}${base(mirror(SIL))}`;
 
-  const front = head + limbsBase
-    + pair('shoulders', 'M44,38 Q34,38 30,46 Q29,54 33,58 L42,52 Q46,45 50,41 Z')
-    + pair('chest', 'M59,40 L50,41 Q44,46 43,54 Q45,62 52,64 Q57,64 59,61 Z')
-    + pair('biceps', 'M31,59 Q27,66 28,76 Q31,82 35,80 Q38,72 40,63 L33,58 Z')
-    + pair('forearms', 'M28,80 Q24,90 24,104 L32,105 Q36,94 36,82 Z')
-    + mus('abs', 'M52,66 Q60,68 68,66 L69,98 Q60,106 51,98 Z')
-    + pair('abs', 'M44,60 Q42,80 46,100 L50,98 L51,66 Z')
-    + base('M46,100 Q60,112 74,100 L76,112 Q60,120 44,112 Z')
-    + pair('quads', 'M44,113 Q39,140 45,168 Q51,173 57,168 Q60,142 58,118 Z')
-    + base('M46,170 Q51,177 56,170 L56,176 Q51,180 46,176 Z') + base(mirror('M46,170 Q51,177 56,170 L56,176 Q51,180 46,176 Z'))
-    + pair('calves', 'M46,179 Q44,200 47,222 L54,222 Q57,200 56,179 Z');
+  const delt = 'M44,38 Q34,38 30,46 Q29,54 33,58 Q38,56 42,52 Q46,45 50,41 Q48,38 44,38 Z';
+  const upperArm = 'M31,60 Q27,66 28,76 Q31,82 35,80 Q38,72 40,64 Q36,59 31,60 Z';
+  const forearm = 'M28,81 Q24,90 24.5,102 Q28,105 31.5,103 Q35,94 35.5,83 Q32,79 28,81 Z';
 
-  const back = head + limbsBase
-    + mus('upperback', 'M60,30 L48,38 Q46,44 50,48 L60,66 L70,48 Q74,44 72,38 Z')
-    + pair('shoulders', 'M44,38 Q34,38 30,46 Q29,54 33,58 L42,52 Q45,45 48,40 Z')
-    + pair('lats', 'M49,50 Q42,62 45,86 Q50,92 57,88 L59,68 Z')
-    + mus('lowerback', 'M51,88 Q60,92 69,88 L70,102 Q60,106 50,102 Z')
-    + pair('triceps', 'M31,59 Q27,66 28,76 Q31,82 35,80 Q38,72 40,63 L33,58 Z')
-    + pair('forearms', 'M28,80 Q24,90 24,104 L32,105 Q36,94 36,82 Z')
-    + pair('glutes', 'M45,103 Q42,116 47,124 Q54,127 59,121 L59,105 Q52,107 45,103 Z')
-    + pair('hamstrings', 'M45,126 Q41,148 46,168 Q51,172 57,168 Q59,146 58,126 Q52,129 45,126 Z')
-    + base('M46,170 Q51,177 56,170 L56,176 Q51,180 46,176 Z') + base(mirror('M46,170 Q51,177 56,170 L56,176 Q51,180 46,176 Z'))
-    + pair('calves', 'M45,179 Q42,196 46,212 Q51,218 55,212 Q58,196 56,179 Z')
-    + base('M47,213 L55,213 L55,222 L47,222 Z') + base(mirror('M47,213 L55,213 L55,222 L47,222 Z'));
+  const front = body
+    + pair('shoulders', delt)
+    + pair('chest', 'M58,41 Q53,40 49,42 Q44,46 43.5,54 Q45,62 52,63.5 Q56,64 58,61 Z')
+    + pair('biceps', upperArm)
+    + pair('forearms', forearm)
+    + mus('abs', 'M53,67 Q60,69 67,67 Q69,82 68,97 Q60,104 52,97 Q51,82 53,67 Z')
+    + pair('abs', 'M44.5,61 Q43,80 46.5,99 Q48.5,99 50,97 Q49,82 50,67 Q47.5,63 44.5,61 Z')
+    + pair('quads', 'M45,114 Q40,140 45.5,167 Q51,172 56.5,167 Q59.5,142 58,119 Q52,114 45,114 Z')
+    + pair('calves', 'M46.5,180 Q44.5,200 47.5,220 Q50.5,222 53.5,220 Q56.5,200 55.5,180 Q51,177 46.5,180 Z');
+
+  const back = body
+    + mus('upperback', 'M60,31 Q53,34 48.5,38 Q46.5,44 50,48 Q55,57 60,65 Q65,57 70,48 Q73.5,44 71.5,38 Q67,34 60,31 Z')
+    + pair('shoulders', delt)
+    + pair('lats', 'M48.5,51 Q42.5,63 45.5,85 Q50.5,91 57,87.5 Q58.5,78 58,69 Q54,59 48.5,51 Z')
+    + mus('lowerback', 'M51.5,90 Q60,93 68.5,90 Q69.5,96 68.5,101 Q60,104.5 51.5,101 Q50.5,96 51.5,90 Z')
+    + pair('triceps', upperArm)
+    + pair('forearms', forearm)
+    + pair('glutes', 'M45.5,105 Q42.5,116 47,123.5 Q53.5,127 58,121.5 Q59,114 58.5,107 Q52,107.5 45.5,105 Z')
+    + pair('hamstrings', 'M45.5,127 Q41.5,148 46,167 Q51,171.5 56.5,167 Q58.5,146 58,127.5 Q52,130 45.5,127 Z')
+    + pair('calves', 'M45.5,180 Q42.5,196 46,211 Q50.5,216.5 54.5,211 Q57.5,196 55.5,180 Q50.5,177 45.5,180 Z');
 
   return `<div class="body-fig" role="img" aria-label="Muskelgrupper forfra og bakfra, farget etter hvor mye de er trent">
     <figure><svg viewBox="16 0 88 236">${front}</svg><figcaption>Forfra</figcaption></figure>
@@ -2409,7 +2630,8 @@ function renderStats(exId) {
   if (!exId) { renderStatsOverview(used); return; }
 
   const ex = exById(exId);
-  setHeader(ex.name, '#/statistikk');
+  // Tilbake dit man kom fra (f.eks. økta man registrerer eller en økt i historikken)
+  setHeader(ex.name, routeFrom && !routeFrom.startsWith('#/statistikk/') ? routeFrom : '#/statistikk');
   const allHist = historyFor(exId);
   if (!allHist.length) { view().innerHTML = `<div class="empty"><p>Ingen data for denne øvelsen ennå.</p></div>`; return; }
 
@@ -2728,7 +2950,7 @@ function renderMore() {
 
     <h2 class="section-title">Faresone</h2>
     <section class="card"><button class="btn danger block btn-destructive" style="margin-top:0" data-act="wipe">Slett alle data</button></section>
-    <p class="small muted" style="text-align:center;margin-top:18px">Treningsloggen · versjon 2.6</p>`;
+    <p class="small muted" style="text-align:center;margin-top:18px">Treningsloggen · versjon 2.7</p>`;
 }
 
 function renderExercises() {
@@ -2994,6 +3216,16 @@ const actions = {
     }
     if (field === 'distance') form.querySelector('[data-show-dist]').hidden = el.dataset.v !== 'true';
     if (field === 'speed') form.querySelector('[data-show-pace]').hidden = el.dataset.v !== 'kmh';
+  },
+  'muscle-pick': (el) => {
+    const next = { '': 'primary', primary: 'secondary', secondary: '' }[el.dataset.lvl || ''];
+    el.dataset.lvl = next;
+    el.setAttribute('aria-pressed', String(!!next));
+    const box = el.closest('[data-muscles]');
+    box.dataset.touched = '1';
+    const map = {};
+    box.querySelectorAll('.mchip').forEach((b) => { if (b.dataset.lvl) map[b.dataset.v] = b.dataset.lvl === 'primary' ? 1 : 0.5; });
+    el.closest('form').elements.muscles.value = muscleValue(map);
   },
   'toggle-field': (el) => {
     const form = el.closest('form');
@@ -3271,16 +3503,27 @@ const actions = {
     el.parentElement.innerHTML = draftFolderChips(db.draft);
   },
   'new-folder': (el) => openFolderForm(el.dataset.ctx),
-  'hist-date': (el) => { histUI.dateMode = el.dataset.v; histUI.filterOpen = true; renderHistory(); },
+  'hist-date': (el) => { if (histUI.dateMode === el.dataset.v) return; histUI.dateMode = el.dataset.v; histUI.filterOpen = true; updateHistDates(true); },
   'hist-filter-toggle': () => {
-    const dateOn = (histUI.dateMode === 'day' && histUI.day) || (histUI.dateMode === 'range' && (histUI.from || histUI.to));
-    // Lukker man filteret mens det er i bruk, nullstilles datoene
-    if ((histUI.filterOpen || dateOn)) Object.assign(histUI, { filterOpen: false, dateMode: 'all', day: '', from: '', to: '' });
-    else histUI.filterOpen = true;
-    renderHistory();
+    // Lukker man filteret mens det er i bruk, nullstilles datoene (innholdet står mens panelet glir igjen)
+    if (histUI.filterOpen || histDateOn()) { Object.assign(histUI, { filterOpen: false, dateMode: 'all', day: '', from: '', to: '' }); updateHistDates(false); }
+    else { Object.assign(histUI, { filterOpen: true, dateMode: 'day' }); updateHistDates(true); }
   },
-  'hist-order': () => { histUI.order = histUI.order === 'desc' ? 'asc' : 'desc'; renderHistory(); },
-  'hist-reset': () => { Object.assign(histUI, { q: '', dateMode: 'all', day: '', from: '', to: '', filterOpen: false }); renderHistory(); },
+  'hist-order': () => {
+    histUI.order = histUI.order === 'desc' ? 'asc' : 'desc';
+    const desc = histUI.order === 'desc';
+    const btn = $('[data-act="hist-order"]');
+    btn.title = desc ? 'Nyeste først' : 'Eldste først';
+    btn.setAttribute('aria-label', desc ? 'Nyeste først – trykk for eldste først' : 'Eldste først – trykk for nyeste først');
+    btn.querySelector('path').setAttribute('d', desc ? 'M8 4v16M8 20l-3-3M8 20l3-3M14 6h6M14 11h4M14 16h2' : 'M8 20V4M8 4L5 7M8 4l3 3M14 6h2M14 11h4M14 16h6');
+    renderHistoryResults();
+  },
+  'hist-reset': () => {
+    Object.assign(histUI, { q: '', dateMode: 'all', day: '', from: '', to: '', filterOpen: false });
+    const q = $('[data-hist-q]');
+    if (q) q.value = '';
+    updateHistDates(false);
+  },
   'hist-mode': (el) => {
     histUI.mode = el.dataset.v;
     try { localStorage.setItem('treningslogg.histmode', histUI.mode); } catch {}
@@ -3386,6 +3629,7 @@ document.addEventListener('input', (ev) => {
   if (t.matches('[data-search]')) { renderPickerList(t.value); return; }
   if (t.matches('[data-tpl-name]')) { if (tplDraft) tplDraft.name = t.value; return; }
   if (t.matches('[data-hist-q]')) { histUI.q = t.value; renderHistoryResults(); return; }
+  if (t.matches('[data-prog-q]')) { statsUI.progQ = t.value; renderProgressList(); return; }
   const d = db.draft;
   if (!d) return;
   if (t.dataset.w) {
@@ -3449,7 +3693,19 @@ document.addEventListener('keydown', (ev) => {
 });
 
 document.addEventListener('change', (ev) => {
-  if (ev.target.matches('[data-hist-f]')) { histUI[ev.target.dataset.histF] = ev.target.value; renderHistory(); return; }
+  if (ev.target.matches('[data-hist-f]')) { histUI[ev.target.dataset.histF] = ev.target.value; updateHistDates(false); return; }
+  // Ny kategori i øvelsesskjemaet: foreslå muskler fra kategorien, så lenge brukeren ikke har valgt selv
+  if (ev.target.matches('form[data-form="exercise"] select[name="cat"]')) {
+    const form = ev.target.form;
+    const box = form.querySelector('[data-muscles]');
+    const id = form.dataset.id;
+    if (box && box.dataset.touched !== '1' && !EX_MUSCLES[id]) {
+      const map = CAT_MUSCLES[ev.target.value] || {};
+      box.innerHTML = muscleChips(map);
+      form.elements.muscles.value = muscleValue(map);
+    }
+    return;
+  }
   if (ev.target.matches('[data-import]') && ev.target.files[0]) importData(ev.target.files[0]);
 });
 

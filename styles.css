@@ -809,7 +809,14 @@ body.kb-open .tabbar { opacity: 0; pointer-events: none; }
 }
 .tool-btn[aria-pressed="true"] { color: var(--accent); border-color: rgb(var(--accent-rgb) / .45); background: rgb(var(--accent-rgb) / .10); }
 .tool-dot { position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
-.hist-dates { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+/* Datofilteret glir opp og ned (grid-rader 0fr → 1fr) */
+.hist-dates-wrap { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .28s cubic-bezier(.2, .8, .2, 1), opacity .2s ease; }
+.hist-dates-wrap.open { grid-template-rows: 1fr; opacity: 1; }
+.hist-dates-wrap > .hist-dates { min-height: 0; overflow: hidden; }
+.hist-dates-wrap:not(.open) { visibility: hidden; transition: grid-template-rows .28s cubic-bezier(.2, .8, .2, 1), opacity .2s ease, visibility 0s .28s; }
+.hist-dates { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; }
+.hist-dates input[type="date"], .hist-dates .field { animation: fade .22s ease; }
+.tool-btn, .tool-dot { transition: color .15s, border-color .15s, background-color .15s; }
 .seg-toggle.mini3 button { min-height: 32px; font-size: 13px; }
 .hist-meta { display: flex; align-items: center; justify-content: space-between; margin: 8px 2px 0; min-height: 22px; }
 .link-btn { border: 0; background: none; padding: 2px 0; color: var(--accent); font-size: 13px; font-weight: 650; cursor: pointer; }
@@ -845,15 +852,20 @@ mark { background: rgb(var(--accent-rgb) / .22); color: var(--text); border-radi
 .hbar-value { font-size: 12.5px; color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* Kroppsfigur */
-.body-fig { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.body-fig, .muscle-legend {
+  --body-tone: color-mix(in oklab, var(--text) 7%, var(--surface));
+  --mus-empty: color-mix(in oklab, var(--text) 16%, var(--surface));
+}
+.body-fig { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 6px 0 2px; }
 .body-fig figure { margin: 0; text-align: center; }
 .body-fig svg { display: block; width: 100%; max-height: 300px; overflow: visible; }
-.body-fig figcaption { margin-top: 4px; font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
-.body-base { fill: color-mix(in oklab, var(--text) 9%, var(--surface)); }
-.mus { fill: color-mix(in oklab, var(--text) 17%, var(--surface)); stroke: var(--surface); stroke-width: 1.2; cursor: pointer; transition: opacity .15s; }
-.mus.sel { stroke: var(--text); stroke-width: 1.6; }
+.body-fig figcaption { margin-top: 8px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.body-base { fill: var(--body-tone); }
+/* Mellomrommene mellom musklene får kroppens farge, med runde hjørner */
+.mus { fill: var(--mus-empty); stroke: var(--body-tone); stroke-width: 1.3; stroke-linejoin: round; cursor: pointer; transition: fill .25s ease; }
+.mus.sel { stroke: var(--text); stroke-width: 1.1; }
 .muscle-legend { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 12px; color: var(--muted); }
-.muscle-scale { flex: 1; height: 8px; border-radius: 999px; background: linear-gradient(90deg, color-mix(in oklab, var(--accent) 22%, white), var(--accent)); }
+.muscle-scale { flex: 1; height: 8px; border-radius: 999px; background: linear-gradient(90deg, color-mix(in oklab, var(--accent) 25%, var(--mus-empty)), var(--accent)); }
 .muscle-info { margin-top: 8px; font-size: 14px; color: var(--text-2); min-height: 20px; }
 .muscle-info b { color: var(--text); }
 
@@ -866,4 +878,45 @@ mark { background: rgb(var(--accent-rgb) / .22); color: var(--text); border-radi
 .kpi-label { font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
 .kpi-value { font-size: 26px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .kpi-row .delta { font-size: 12.5px; margin-top: 3px; }
-.body-sil .body-base { fill: color-mix(in oklab, var(--text) 9%, var(--surface)); }
+
+/* Muskelvalg for egne øvelser: fylt = hovedmuskel, stiplet = hjelpemuskel */
+.mchip[data-lvl="primary"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.mchip[data-lvl="secondary"] { background: rgb(var(--accent-rgb) / .12); border: 1px dashed var(--accent); color: var(--text); }
+.muscle-pick-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; }
+.muscle-pick-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.mdot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.mdot.primary { background: var(--accent); }
+.mdot.secondary { background: rgb(var(--accent-rgb) / .12); border: 1px dashed var(--accent); }
+
+/* Form: smultringdiagram med forklaring */
+.form-wrap { display: flex; align-items: center; gap: 18px; margin-top: 12px; }
+.donut { position: relative; flex: none; width: 124px; height: 124px; }
+.donut svg { display: block; width: 100%; height: 100%; }
+.donut-track { stroke: rgb(var(--tint-rgb) / .06); }
+.donut-mid { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.donut-emoji { font-size: 34px; line-height: 1; }
+.donut-lbl { margin-top: 4px; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.form-legend { flex: 1; min-width: 0; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.form-legend li { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--text-2); }
+.form-legend li.none { opacity: .45; }
+.form-legend i { flex: none; width: 10px; height: 10px; border-radius: 3px; }
+.form-legend span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.form-legend b { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.form-feel { margin-top: 14px; font-size: 15px; color: var(--text-2); }
+.form-feel b { color: var(--text); font-weight: 700; }
+
+/* Treningsrapport: korte linjer med ikon, tittel og status */
+.report-card { padding-top: 14px; padding-bottom: 6px; }
+.report-row { display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid var(--card-border); }
+.report-row:first-of-type { border-top: 0; }
+.report-ico { flex: none; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; color: var(--accent); background: rgb(var(--accent-rgb) / .12); }
+.report-body { flex: 1; min-width: 0; }
+.report-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.report-head b { font-size: 15px; }
+.report-body p { margin: 3px 0 0; font-size: 13.5px; line-height: 1.45; color: var(--text-2); }
+.report-body p b { color: var(--text); font-weight: 650; }
+.report-tag { flex: none; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 700; white-space: nowrap; color: var(--text-2); background: rgb(var(--tint-rgb) / .07); }
+.report-tag.up { color: var(--accent); background: rgb(var(--accent-rgb) / .12); }
+.report-tag.down { color: var(--text-2); background: rgb(var(--tint-rgb) / .07); }
+.period-seg { margin-top: 16px; }
+.prog-search { margin-top: 2px; }
