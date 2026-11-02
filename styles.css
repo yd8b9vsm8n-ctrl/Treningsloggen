@@ -200,6 +200,8 @@ body.scrolled .topbar {
   border-bottom-color: var(--glass-border);
 }
 .topbar .titles { min-width: 0; }
+.top-logo { flex: none; margin-left: auto; }
+.top-timer:not([hidden]) + .top-logo { margin-left: 10px; }
 /* Tittelen holder fast størrelse – endret høyde under scrolling gir hakking */
 .topbar h1 { font-size: 28px; font-weight: 800; letter-spacing: -.025em; line-height: 1.15; }
 .topbar .subtitle { font-size: 13px; font-weight: 600; color: var(--text-2); margin-bottom: 2px; }
@@ -905,18 +907,60 @@ mark { background: rgb(var(--accent-rgb) / .22); color: var(--text); border-radi
 .form-feel { margin-top: 14px; font-size: 15px; color: var(--text-2); }
 .form-feel b { color: var(--text); font-weight: 700; }
 
-/* Treningsrapport: korte linjer med ikon, tittel og status */
-.report-card { padding-top: 14px; padding-bottom: 6px; }
-.report-row { display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid var(--card-border); }
-.report-row:first-of-type { border-top: 0; }
-.report-ico { flex: none; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; color: var(--accent); background: rgb(var(--accent-rgb) / .12); }
-.report-body { flex: 1; min-width: 0; }
-.report-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.report-head b { font-size: 15px; }
-.report-body p { margin: 3px 0 0; font-size: 13.5px; line-height: 1.45; color: var(--text-2); }
-.report-body p b { color: var(--text); font-weight: 650; }
-.report-tag { flex: none; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 700; white-space: nowrap; color: var(--text-2); background: rgb(var(--tint-rgb) / .07); }
-.report-tag.up { color: var(--accent); background: rgb(var(--accent-rgb) / .12); }
-.report-tag.down { color: var(--text-2); background: rgb(var(--tint-rgb) / .07); }
+/* Treningsrapport: månedsvelger og fem korte deler */
+.report-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.report-nav .tool-btn:disabled { opacity: .35; cursor: default; }
+.report-month { text-align: center; min-width: 0; }
+.report-month b { display: block; font-size: 16px; }
+.report-month span { display: block; margin-top: 1px; font-size: 12px; color: var(--muted); }
+.report-empty { margin-top: 14px; text-align: center; }
+.report-part { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--card-border); }
+.report-part h3 { margin: 0 0 10px; font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.report-summary { margin: 0; font-size: 14.5px; line-height: 1.5; color: var(--text-2); }
+.report-summary b, .report-facts b { color: var(--text); font-weight: 650; }
+.report-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.report-grid > div { padding: 10px 12px; border-radius: 12px; background: rgb(var(--tint-rgb) / .05); }
+.report-grid > div:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.report-grid span { display: block; font-size: 12px; color: var(--muted); }
+.report-grid b { display: block; margin-top: 2px; font-size: 18px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.report-recs { list-style: none; margin: 0; padding: 0; }
+.report-recs li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; font-size: 14px; }
+.report-recs li + li { border-top: 1px solid var(--card-border); }
+.report-recs b { flex: none; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.report-recs small { display: block; margin-top: 1px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.report-recs b small { color: var(--accent); font-weight: 650; }
+.report-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.report-cal i { display: grid; place-items: center; height: 30px; border-radius: 8px; font-size: 12px; font-style: normal; font-variant-numeric: tabular-nums; color: var(--muted); }
+.report-cal .cal-head { height: 20px; font-size: 11px; font-weight: 700; }
+.report-cal .cal-day { background: rgb(var(--tint-rgb) / .05); }
+.report-cal .cal-day.strength, .report-cal .cal-day.cardio, .report-cal .cal-day.both { color: var(--accent-ink); font-weight: 700; }
+.report-cal .cal-day.strength { background: var(--series-strength); }
+.report-cal .cal-day.cardio { background: var(--series-cardio); }
+.report-cal .cal-day.both { background: linear-gradient(135deg, var(--series-strength) 50%, var(--series-cardio) 50%); }
+.report-cal .cal-day.future { background: none; opacity: .5; }
+.report-facts { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--text-2); }
+.report-cmp { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.report-cmp th { padding: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.report-cmp td { padding: 7px 0; border-top: 1px solid var(--card-border); color: var(--text-2); white-space: nowrap; }
+.report-cmp .num { padding-left: 10px; text-align: right; font-variant-numeric: tabular-nums; }
+.report-cmp td b { color: var(--text); font-weight: 700; }
+.report-cmp em { font-style: normal; font-size: 12.5px; font-weight: 650; color: var(--muted); }
+.report-cmp em.up { color: var(--accent); }
 .period-seg { margin-top: 16px; }
 .prog-search { margin-top: 2px; }
+.report-recs li[hidden] { display: none; }
+.report-more { display: block; margin-top: 8px; padding: 4px 0; }
+.hbar-sub { grid-column: 1 / -1; list-style: none; margin: -2px 0 4px; padding: 0 0 0 12px; border-left: 2px solid var(--card-border); display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-2); }
+.report-cmp em.down { color: var(--accent); }
+.report-recs b small.strength, .report-cmp em.strength { color: var(--series-strength); }
+.report-recs b small.cardio, .report-cmp em.cardio { color: var(--series-cardio); }
+.report-group + .report-group { margin-top: 14px; }
+.report-group h4 { margin: 0 0 8px; font-size: 15px; font-weight: 700; }
+.report-cmp .cmp-toggle td { padding: 2px 0 6px; border-top: 0; }
+.report-types { margin-top: 8px; }
+.report-cmp .cmp-type td { font-size: 13px; }
+.report-cmp .cmp-type td:first-child { padding-left: 12px; white-space: normal; }
+.hbar-sub-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+.hbar-sub-head b { font-weight: 700; color: var(--text); }
+.hbar-sub-head span:last-child { font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hbar-track.thin { display: block; height: 5px; }
