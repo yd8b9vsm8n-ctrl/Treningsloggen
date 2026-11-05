@@ -2228,22 +2228,22 @@ const muscleName = (id) => (MUSCLES.find(([k]) => k === id) || [id, id])[1];
 // Hvilke muskler hver standardøvelse trener: 1 = hovedmuskel, 0.5 = hjelpemuskel
 const EX_MUSCLES = {
   'knebøy': { quads: 1, glutes: 1, hamstrings: 0.5, lowerback: 0.5 },
-  beinpress: { quads: 1, glutes: 0.5 },
+  beinpress: { quads: 1, glutes: 0.5, hamstrings: 0.5 },
   utfall: { quads: 1, glutes: 1, hamstrings: 0.5 },
-  bulgarsk: { quads: 1, glutes: 1 },
-  'marklöft': { hamstrings: 1, glutes: 1, lowerback: 1, upperback: 0.5, forearms: 0.5 },
+  bulgarsk: { quads: 1, glutes: 1, hamstrings: 0.5 },
+  'marklöft': { hamstrings: 1, glutes: 1, lowerback: 1, quads: 0.5, upperback: 0.5, forearms: 0.5 },
   rumensk: { hamstrings: 1, glutes: 1, lowerback: 0.5 },
   legext: { quads: 1 },
   legcurl: { hamstrings: 1 },
   tahev: { calves: 1 },
   benkpress: { chest: 1, triceps: 0.5, shoulders: 0.5 },
   skrabenk: { chest: 1, shoulders: 0.5, triceps: 0.5 },
-  brystpress: { chest: 1, triceps: 0.5 },
+  brystpress: { chest: 1, triceps: 0.5, shoulders: 0.5 },
   'hantelpress-bryst': { chest: 1, triceps: 0.5, shoulders: 0.5 },
-  flyes: { chest: 1 },
-  cablecross: { chest: 1 },
+  flyes: { chest: 1, shoulders: 0.5 },
+  cablecross: { chest: 1, shoulders: 0.5 },
   pushups: { chest: 1, triceps: 0.5, shoulders: 0.5 },
-  nedtrekk: { lats: 1, biceps: 0.5 },
+  nedtrekk: { lats: 1, biceps: 0.5, upperback: 0.5 },
   pullups: { lats: 1, biceps: 0.5, upperback: 0.5 },
   roing: { upperback: 1, lats: 1, biceps: 0.5 },
   stangroing: { upperback: 1, lats: 1, lowerback: 0.5, biceps: 0.5 },
@@ -2271,11 +2271,11 @@ const EX_MUSCLES = {
   abwheel: { abs: 1, lats: 0.5 },
   magemaskin: { abs: 1 },
   farmers: { forearms: 1, upperback: 1, glutes: 0.5, quads: 0.5, abs: 0.5 },
-  sledpush: { quads: 1, glutes: 1, calves: 0.5 },
-  sledpull: { hamstrings: 1, glutes: 1, upperback: 0.5 },
+  sledpush: { quads: 1, glutes: 1, calves: 0.5, hamstrings: 0.5 },
+  sledpull: { upperback: 1, lats: 1, biceps: 0.5, forearms: 0.5, hamstrings: 0.5, glutes: 0.5 },
   walklunge: { quads: 1, glutes: 1, hamstrings: 0.5, abs: 0.5 },
   wallballs: { quads: 1, glutes: 1, shoulders: 1, triceps: 0.5, abs: 0.5 },
-  burpees: { chest: 1, quads: 1, shoulders: 0.5, triceps: 0.5, abs: 0.5, glutes: 0.5 },
+  burpees: { quads: 1, glutes: 1, chest: 0.5, shoulders: 0.5, triceps: 0.5, abs: 0.5 },
 };
 // Egne øvelser: muskler ut fra mappen de ligger i
 const CAT_MUSCLES = {
@@ -2287,7 +2287,10 @@ const CAT_MUSCLES = {
   Mage: { abs: 1 },
   'Funksjonell styrketrening': { quads: 0.5, glutes: 0.5, upperback: 0.5, abs: 0.5 },
 };
-const musclesFor = (ex) => (ex.muscles && Object.keys(ex.muscles).length ? ex.muscles : EX_MUSCLES[ex.id] || CAT_MUSCLES[ex.cat] || {});
+// Egen øvelse med samme navn som en standardøvelse (laget før standardøvelsen fantes) får standardmusklene
+const defaultIdByName = (name) => DEFAULT_EXERCISES.find((d) => d.name.toLowerCase() === String(name || '').trim().toLowerCase())?.id;
+const musclesFor = (ex) => (ex.muscles && Object.keys(ex.muscles).length ? ex.muscles
+  : EX_MUSCLES[ex.id] || EX_MUSCLES[defaultIdByName(ex.name)] || CAT_MUSCLES[ex.cat] || {});
 
 // Arbeidssett i en styrkeøvelse: fullførte sett (reps, tid eller lengde) eller forsøk i 1RM-test
 function workSets(en) {
@@ -3058,7 +3061,7 @@ function renderMore() {
 
     <h2 class="section-title">Faresone</h2>
     <section class="card"><button class="btn danger block btn-destructive" style="margin-top:0" data-act="wipe">Slett alle data</button></section>
-    <p class="small muted" style="text-align:center;margin-top:18px">Treningsloggen · versjon 2.9</p>`;
+    <p class="small muted" style="text-align:center;margin-top:18px">Treningsloggen · versjon 3.0</p>`;
 }
 
 let exListQ = '';
