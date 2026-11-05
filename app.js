@@ -1931,7 +1931,8 @@ function monthlyTrend() {
   const first = months.findIndex((m) => m.n > 0);
   if (first < 0) return null;
   const list = months.slice(first);
-  if (list.length < 2) return null;
+  // Først når minst to ulike måneder har minst to økter hver
+  if (list.filter((m) => m.n >= 2).length < 2) return null;
   // Inneværende måned er ikke ferdig: regn om etter dagene som har gått
   const cur = list[list.length - 1];
   const day = now.getDate();
@@ -2354,6 +2355,7 @@ function hbars(rows) {
 function progressList(used) {
   const q = (statsUI.progQ || '').trim().toLowerCase();
   const exs = [...used.keys()].map(exById).filter((e) => !q || e.name.toLowerCase().includes(q));
+  if (!used.size) return `<p class="small muted" style="margin:6px 4px 0">Fremgangen for hver øvelse vises her når du har registrert økter.</p>`;
   if (!exs.length) return `<div class="empty"><p>Ingen øvelser passer søket.</p></div>`;
   const row = (e) => {
     const hist = historyFor(e.id);
@@ -2595,17 +2597,18 @@ function monthReport() {
 
 function renderStatsOverview(used) {
   setHeader('Statistikk');
-  if (!db.workouts.length) { view().innerHTML = `<div class="empty"><p>Ingen data ennå.</p></div>`; return; }
   const period = statsUI.period || 'month';
   const { p, from, to, prevFrom, prevTo } = periodRange(period);
   const cur = workoutsBetween(from, to);
-  const prev = prevFrom ? workoutsBetween(prevFrom, prevTo) : null;
+  // Uten økter er det ingenting å sammenligne med
+  const prev = prevFrom && db.workouts.length ? workoutsBetween(prevFrom, prevTo) : null;
   const recs = recordEvents();
   const recIn = (a, b) => recs.filter((r) => (!a || r.date >= a) && r.date <= b).length;
   const mins = (ws) => ws.reduce((s, w) => s + (w.durationMin || 0), 0);
 
   // Økter per uke øverst (fast 12 uker), deretter periodevalget som styrer resten av siden
-  let html = `<section class="card"><div class="chart-title">Økter per uke</div><div class="chart-sub">Siste 12 uker</div><div class="chart-wrap" id="week-chart"></div></section>
+  let html = `${db.workouts.length ? '' : '<p class="small muted" style="margin:4px 4px 12px">Statistikken fylles ut her når du registrerer økter.</p>'}
+  <section class="card"><div class="chart-title">Økter per uke</div><div class="chart-sub">Siste 12 uker</div><div class="chart-wrap" id="week-chart"></div></section>
   <div class="seg-toggle four period-seg" role="group" aria-label="Periode">
     ${STATS_PERIODS.map((x) => `<button type="button" data-act="stats-period" data-v="${x.k}" aria-pressed="${x.k === period}">${x.short}</button>`).join('')}
   </div>`;
@@ -3055,19 +3058,32 @@ function renderMore() {
 
     <h2 class="section-title">Faresone</h2>
     <section class="card"><button class="btn danger block btn-destructive" style="margin-top:0" data-act="wipe">Slett alle data</button></section>
-    <p class="small muted" style="text-align:center;margin-top:18px">Treningsloggen · versjon 2.8</p>`;
+    <p class="small muted" style="text-align:center;margin-top:18px">Treningsloggen · versjon 2.9</p>`;
 }
 
+let exListQ = '';
 function renderExercises() {
   setHeader('Øvelser', '#/mer');
-  let html = `<button class="btn primary block" style="margin-top:8px" data-act="new-ex-settings">+ Ny øvelse</button>`;
+  view().innerHTML = `<button class="btn primary block" style="margin-top:8px" data-act="new-ex-settings">+ Ny øvelse</button>
+    <label class="hist-search prog-search" style="margin-top:12px">
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 16l4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input type="search" data-exlist-q value="${esc(exListQ)}" placeholder="Søk etter øvelse" autocomplete="off" aria-label="Søk etter øvelse">
+    </label>
+    <div id="ex-list">${exerciseList()}</div>`;
+}
+// Øvelsene i mapper per kategori, eller treff direkte når man søker
+function exerciseList() {
+  const q = exListQ.trim().toLowerCase();
+  const row = (e) => `<button class="ex-option" data-act="ex-menu" data-id="${esc(e.id)}">
+      <span${e.hidden ? ' class="muted"' : ''}>${q ? markMatch(e.name, q) : esc(e.name)}${e.hidden ? ' (skjult)' : ''}</span><span class="kind">${e.kind === 'cardio' ? 'Kondisjon' : 'Styrke'}</span></button>`;
+  let html = '';
   for (const cat of CATEGORIES) {
-    const items = db.exercises.filter((e) => inCat(e, cat, true)).sort(sortIn(cat));
+    const items = db.exercises.filter((e) => inCat(e, cat, true) && (!q || e.name.toLowerCase().includes(q))).sort(sortIn(cat));
     if (!items.length) continue;
-    html += folder('innst-' + cat, cat, items.length, items.map((e) => `<button class="ex-option" data-act="ex-menu" data-id="${esc(e.id)}">
-      <span${e.hidden ? ' class="muted"' : ''}>${esc(e.name)}${e.hidden ? ' (skjult)' : ''}</span><span class="kind">${e.kind === 'cardio' ? 'Kondisjon' : 'Styrke'}</span></button>`).join(''));
+    html += q ? `<div class="ex-group">${esc(cat)}</div>${items.map(row).join('')}` : folder('innst-' + cat, cat, items.length, items.map(row).join(''));
   }
-  view().innerHTML = `<div class="folder-list">${html}</div>`;
+  if (!html) return `<div class="empty"><p>Ingen øvelser passer søket.</p></div>`;
+  return q ? `<section class="card" style="padding:4px 14px">${html}</section>` : `<div class="folder-list">${html}</div>`;
 }
 
 async function exportData() {
@@ -3748,6 +3764,7 @@ document.addEventListener('input', (ev) => {
   if (t.matches('[data-tpl-name]')) { if (tplDraft) tplDraft.name = t.value; return; }
   if (t.matches('[data-hist-q]')) { histUI.q = t.value; renderHistoryResults(); return; }
   if (t.matches('[data-prog-q]')) { statsUI.progQ = t.value; renderProgressList(); return; }
+  if (t.matches('[data-exlist-q]')) { exListQ = t.value; $('#ex-list').innerHTML = exerciseList(); return; }
   const d = db.draft;
   if (!d) return;
   if (t.dataset.w) {
