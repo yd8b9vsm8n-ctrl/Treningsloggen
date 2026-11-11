@@ -258,8 +258,10 @@ let db = load();
 let saveTimer = null;
 function save() {
   clearTimeout(saveTimer);
+  if (window.nativeApp?.blockSave) return; // iOS-appen henter tilbake data fra sikkerhetskopien
   try { localStorage.setItem(STORE_KEY, JSON.stringify(db)); }
   catch (e) { toast('Kunne ikke lagre – lagringsplassen kan være full'); }
+  window.nativeApp?.afterSave(); // iOS-appen: sikkerhetskopi i appens egen lagring
 }
 const saveSoon = () => { clearTimeout(saveTimer); saveTimer = setTimeout(save, 300); };
 window.addEventListener('pagehide', save);
@@ -377,7 +379,7 @@ function cardioStats(entry) {
   const s = {
     timeMin: t ? t / 60 : null, timeSec: t, distanceKm: dist, speed, pace500: speed ? 1800 / speed : null, paceKm: speed ? 3600 / speed : null,
     maxSpeed: agg && agg.count > 1 ? agg.maxSpeed : null,
-    avgHr: entry.avgHr || null, kcal: entry.kcal || null,
+    avgHr: entry.avgHr || null, maxHr: entry.maxHr || null, kcal: entry.kcal || null,
     ...Object.fromEntries(RATE_FIELDS.map((k) => [k, rate(k)])),
     floors: entry.floors || null, elevation: entry.elevation || null,
     intervals: iv ? iv.count : null,
@@ -424,6 +426,7 @@ function cardioMetrics(ex) {
   }
   for (const f of cfg.fields) m.push({ k: f, label: CARDIO_FIELDS[f].name, unit: CARDIO_FIELDS[f].unit, d: CARDIO_FIELDS[f].d });
   m.push({ k: 'avgHr', label: 'Snittpuls', unit: 'slag/min', d: 0 });
+  m.push({ k: 'maxHr', label: 'Makspuls', unit: 'slag/min', d: 0 });
   return m;
 }
 const fmtMetric = (metric, raw) => (raw == null ? '–' : metric.fmt ? metric.fmt(raw) : fmtNum(raw * (metric.scale || 1), metric.d));
@@ -495,6 +498,7 @@ function cardioSummary(en, withPurpose = true) {
   }
   for (const f of cfg.fields) if (st[f] != null) parts.push(CARDIO_FIELDS[f].text(st[f]));
   if (st.avgHr) parts.push(`puls ${fmtNum(st.avgHr, 0)}`);
+  if (st.maxHr) parts.push(`makspuls ${fmtNum(st.maxHr, 0)}`);
   if (st.kcal) parts.push(`${fmtNum(st.kcal, 0)} kcal`);
   const seg = segTotals(en);
   if (seg && seg.count > 1) parts.push(`${seg.count} segmenter`);
@@ -585,7 +589,7 @@ function fitSheetToKeyboard() {
   root.style.setProperty('--kb-pad', kb > 0 ? '0px' : 'env(safe-area-inset-bottom)');
   // Tastatur oppe: skjul menyen. Når det lukkes, ber vi Safari om å plassere faste
   // elementer på nytt – ellers kan menyen bli hengende forskjøvet til man scroller.
-  const open = kb > 80;
+  const open = kb > 80 || !!window.nativeApp?.keyboardOpen;
   if (document.body.classList.contains('kb-open') && !open) {
     requestAnimationFrame(() => window.scrollTo(window.scrollX, window.scrollY));
   }
@@ -674,7 +678,8 @@ function setAppearance(theme, mode) {
 let curHash = location.hash, backNav = false, skipNav = false;
 const navStack = [], scrollMem = {};
 function route() {
-  if (curHash !== location.hash) {
+  const arrived = curHash !== location.hash;
+  if (arrived) {
     scrollMem[curHash] = window.scrollY;
     if (navStack[navStack.length - 1] === location.hash) { navStack.pop(); backNav = true; }
     else if (!skipNav) navStack.push(curHash || '#/');
@@ -682,6 +687,8 @@ function route() {
   }
   skipNav = false;
   const restore = backNav ? scrollMem[location.hash] : 0;
+  // Fremgang per øvelse: mappene lukkes når man kommer til statistikken på nytt, men ikke med tilbake-pila
+  if (arrived && !backNav && location.hash === '#/statistikk') closeFolders((k) => k.startsWith('prog-'));
   backNav = false;
   closeSheet();
   const parts = (location.hash.slice(2) || '').split('/').map(decodeURIComponent);
@@ -689,7 +696,7 @@ function route() {
   if (!arg && page !== 'okt' && ['', 'home', 'historikk', 'statistikk', 'mer'].includes(page || '')) navStack.length = 0;
   let tab = page || 'home';
   if (page === 'okt' && arg) tab = 'historikk';
-  if (page === 'ovelser' || page === 'profil' || page === 'utseende') tab = 'mer';
+  if (['ovelser', 'profil', 'utseende', 'personvern', 'kundestotte'].includes(page)) tab = 'mer';
   document.querySelectorAll('.tabbar a').forEach((a) => {
     if (a.dataset.tab === tab) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
@@ -705,6 +712,8 @@ function route() {
     case 'ovelser': renderExercises(); break;
     case 'profil': renderProfile(); break;
     case 'utseende': renderAppearance(); break;
+    case 'personvern': renderLegal('Personvern', LEGAL.privacy); break;
+    case 'kundestotte': renderLegal('Kundestøtte', LEGAL.support); break;
     case 'favoritt': renderTemplateEditor(arg); break;
     default: renderHome();
   }
@@ -1297,6 +1306,7 @@ function enduranceForm(en, i, cfg, unit, last) {
       ${speedField(a, en.speedKmh, lastSt?.speed, cfg, cfg.speed === 'pace500' ? 'Snittempo' : 'Snittfart')}
       ${cfg.fields.map((f) => extraField(a, f, en[f], lastSt?.[f])).join('')}
       <label class="field">Snittpuls<input inputmode="numeric" ${a} data-f="avgHr" value="${inputVal(en.avgHr)}" placeholder="${ph(lastSt?.avgHr, 0)}"></label>
+      <label class="field">Makspuls<input inputmode="numeric" ${a} data-f="maxHr" value="${inputVal(en.maxHr)}" placeholder="${ph(lastSt?.maxHr, 0)}"></label>
     </div>
 
     <div class="subhead">Segmenter</div>
@@ -1354,6 +1364,7 @@ function intervalForm(en, i, cfg, unit, last) {
     <div class="cardio-grid" style="margin-top:14px">
       ${cfg.fields.filter((f) => !CARDIO_FIELDS[f].rate).map((f) => extraField(`data-e="${i}"`, f, en[f], last?.en[f])).join('')}
       <label class="field">Snittpuls<input inputmode="numeric" data-e="${i}" data-f="avgHr" value="${inputVal(en.avgHr)}" placeholder="${ph(last ? cardioStats(last.en)?.avgHr : null, 0)}"></label>
+      <label class="field">Makspuls<input inputmode="numeric" data-e="${i}" data-f="maxHr" value="${inputVal(en.maxHr)}" placeholder="${ph(last ? cardioStats(last.en)?.maxHr : null, 0)}"></label>
       ${last ? `<div style="align-self:end"><button class="btn ghost sm" data-act="fill-last" data-e="${i}">↺ Som sist</button></div>` : ''}
     </div>
     <p class="derived" data-derived="${i}">${derivedText(en)}</p>`;
@@ -1387,7 +1398,7 @@ function derivedText(en) {
 }
 
 function blankCardio() {
-  const o = { timeSec: null, distanceKm: null, speedKmh: null, avgHr: null, kcal: null, purpose: 'endurance', distUnit: null, segments: [], intervals: [] };
+  const o = { timeSec: null, distanceKm: null, speedKmh: null, avgHr: null, maxHr: null, kcal: null, purpose: 'endurance', distUnit: null, segments: [], intervals: [] };
   for (const f of Object.keys(CARDIO_FIELDS)) o[f] = null;
   return o;
 }
@@ -1558,7 +1569,11 @@ let pickerSel = [];
 let pickerTarget = 'draft';
 function openExercisePicker(keepSelection, target) {
   if (target) pickerTarget = target;
-  if (!keepSelection) pickerSel = [];
+  if (!keepSelection) {
+    pickerSel = [];
+    // Ny runde med øvelsesvalg: start med alle mappene lukket
+    closeFolders((k) => k === 'mest-brukt' || CATEGORIES.includes(k));
+  }
   openSheet(`<h2>Legg til øvelser</h2>
     <input type="search" data-search placeholder="Søk eller skriv navn på ny øvelse" autocomplete="off">
     <div class="scroll" id="picker-list" style="margin-top:8px"></div>
@@ -1592,6 +1607,10 @@ const sortIn = (cat) => (a, b) => ((a.cat || 'Annet') !== cat) - ((b.cat || 'Ann
 const openFolders = new Set(loadOpenFolders());
 function loadOpenFolders() {
   try { return JSON.parse(localStorage.getItem('treningslogg.folders') || '[]'); } catch { return []; }
+}
+function closeFolders(match) {
+  for (const k of [...openFolders]) if (match(k)) openFolders.delete(k);
+  try { localStorage.setItem('treningslogg.folders', JSON.stringify([...openFolders])); } catch {}
 }
 function folder(key, title, count, content, icon) {
   return `<details class="folder" data-folder="${esc(key)}" ${openFolders.has(key) ? 'open' : ''}>
@@ -1785,15 +1804,16 @@ function renderWorkoutDetail(id) {
       const speedHead = cfg.speed === 'pace500' ? '/500 m' : 'km/t';
       const cols = (p, raw) => `${cfg.distance ? `<td class="num">${p.distanceKm ? fmtDist(p.distanceKm, unit) : '–'}</td>` : ''}${cfg.speed !== 'none' ? `<td class="num">${p.speed ? (cfg.speed === 'pace500' ? fmtDuration(paceSec(p.speed)) : fmtNum(p.speed, 1)) : '–'}${cfg.pace && p.speed ? `<div class="sub">${fmtPace(p.speed)}</div>` : ''}</td>` : ''}${rates.map((f) => `<td class="num">${fmtNum(raw[f], CARDIO_FIELDS[f].d)}</td>`).join('')}`;
       const heads = `${cfg.distance ? '<th class="num">Distanse</th>' : ''}${cfg.speed !== 'none' ? `<th class="num">${speedHead}</th>` : ''}${rates.map((f) => `<th class="num">${esc(CARDIO_FIELDS[f].unit)}</th>`).join('')}`;
+      const tempoChart = canChartTempo(tempoParts(en), cfg) ? `<div class="chart-wrap" data-seg-chart="${w.entries.indexOf(en)}"></div>` : '';
       if (iv) {
-        html += `<div class="subhead">Intervaller</div>
+        html += `<div class="subhead">Intervaller</div>${tempoChart}
           <div class="table-scroll"><table class="data" style="margin-top:6px"><thead><tr><th>#</th><th class="num">Tid</th>${heads}<th class="num">Pause</th></tr></thead><tbody>
           ${en.intervals.map((x, j) => { const p = iv.parts[j]; return `<tr><td>${j + 1}</td><td class="num">${p.timeSec ? fmtDuration(p.timeSec) : '–'}</td>${cols(p, x)}<td class="num">${j < en.intervals.length - 1 && x.restSec ? fmtDuration(x.restSec) : '–'}</td></tr>`; }).join('')}
           </tbody></table></div>`;
       } else if (segs.length) {
         let acc = 0;
         html += `<div class="subhead">${cfg.speed === 'none' ? 'Segmenter' : 'Fartsprofil'}</div>
-          ${cfg.speed === 'kmh' && segs.length > 1 && segs.every((s) => s.timeSec && s.speed) ? `<div class="chart-wrap" data-seg-chart="${esc(en.id)}"></div>` : ''}
+          ${tempoChart}
           <div class="table-scroll"><table class="data" style="margin-top:6px"><thead><tr><th>#</th><th>Tid</th>${heads}</tr></thead><tbody>
           ${segs.map((s, j) => { const from = acc; acc += s.timeSec || 0; return `<tr><td>${j + 1}</td><td>${s.timeSec ? `${fmtDuration(from)}–${fmtDuration(acc)}` : '–'}</td>${cols(s, s)}</tr>`; }).join('')}
           </tbody></table></div>`;
@@ -1828,37 +1848,68 @@ function renderWorkoutDetail(id) {
   <button class="btn danger block btn-destructive" data-act="delete-workout" data-id="${esc(w.id)}">Slett økt</button>`;
   view().innerHTML = html;
   for (const el of document.querySelectorAll('[data-seg-chart]')) {
-    const en = w.entries.find((e) => e.id === el.dataset.segChart);
-    if (en) drawSegChart(el, resolvedSegments(en), exCfg(exById(en.exerciseId)).fields.filter((f) => CARDIO_FIELDS[f].rate));
+    const en = w.entries[+el.dataset.segChart];
+    const cfg = exCfg(exById(en.exerciseId));
+    drawSegChart(el, tempoParts(en), cfg.fields.filter((f) => CARDIO_FIELDS[f].rate), cfg);
   }
 }
 
-// Fartsprofil: trappediagram med fart over tid
-function drawSegChart(el, segs, rates) {
-  const W = Math.max(260, el.clientWidth), H = 150, m = { t: 10, r: 8, b: 22, l: 34 };
-  const iw = W - m.l - m.r, ih = H - m.t - m.b;
-  const total = segs.reduce((a, s) => a + s.timeSec, 0);
-  const speeds = segs.map((s) => s.speed);
-  const ticks = niceTicks(Math.min(...speeds) * 0.9, Math.max(...speeds), 3);
-  const y0 = ticks[0], y1 = ticks[ticks.length - 1];
-  const X = (sec) => m.l + (sec / total) * iw;
-  const Y = (v) => m.t + ih - ((v - y0) / (y1 - y0 || 1)) * ih;
-  let acc = 0, d = '';
-  const items = [];
-  segs.forEach((s, j) => {
-    const x0 = X(acc), x1 = X(acc + s.timeSec), y = Y(s.speed);
-    d += `${j ? 'L' : 'M'}${x0.toFixed(1)},${y.toFixed(1)}H${x1.toFixed(1)}`;
-    items.push({ x: (x0 + x1) / 2, y, tip: `<b>${fmtNum(s.speed, 1)} km/t</b><br>Segment ${j + 1}: ${fmtDuration(acc)}–${fmtDuration(acc + s.timeSec)}${rates.filter((f) => s[f] != null).map((f) => `<br>${CARDIO_FIELDS[f].name}: ${fmtNum(s[f], CARDIO_FIELDS[f].d)}`).join('')}` });
-    acc += s.timeSec;
+// Tempo gjennom økta: segmentene etter hverandre, eller dragene med pausene som tomrom.
+// Hver del har start (sek fra start), timeSec og speed (km/t). Krever minst to deler med fart.
+function tempoParts(en) {
+  const iv = intervalTotals(en);
+  let t = 0;
+  if (iv) {
+    const ivs = (en.intervals || []).filter((x) => x.timeSec > 0 || x.distanceKm > 0);
+    return iv.parts.map((p, j) => {
+      const part = { ...p, start: t, label: `Drag ${j + 1}` };
+      t += (p.timeSec || 0) + (j < ivs.length - 1 ? ivs[j].restSec || 0 : 0);
+      return part;
+    });
+  }
+  return resolvedSegments(en).map((p, j) => {
+    const part = { ...p, start: t, label: `Segment ${j + 1}` };
+    t += p.timeSec || 0;
+    return part;
   });
-  const area = `${d}V${m.t + ih}H${m.l}Z`;
+}
+const canChartTempo = (parts, cfg) => cfg.speed !== 'none' && parts.length > 1 && parts.every((p) => p.timeSec && p.speed);
+
+// Trappediagram: tempo (min/km eller /500 m) eller fart (km/t) over tid. Raskere er alltid høyere opp.
+function drawSegChart(el, parts, rates, cfg) {
+  const W = Math.max(260, el.clientWidth), H = 150, m = { t: 10, r: 8, b: 22, l: 40 };
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const pace = cfg.speed === 'pace500' || cfg.pace;
+  const val = (kmh) => (cfg.speed === 'pace500' ? 1800 / kmh : cfg.pace ? 3600 / kmh : kmh);
+  const fmt = (v) => (pace ? fmtDuration(v) : fmtNum(v, 1));
+  const unit = cfg.speed === 'pace500' ? '/500 m' : cfg.pace ? '/km' : 'km/t';
+  const vals = parts.map((p) => val(p.speed));
+  const lo = Math.min(...vals), hi = Math.max(...vals), pad = (hi - lo) * 0.15 || hi * 0.05;
+  const ticks = niceTicks(Math.max(0, lo - pad), hi + pad, 3);
+  const y0 = ticks[0], y1 = ticks[ticks.length - 1];
+  const last = parts[parts.length - 1];
+  const total = last.start + last.timeSec;
+  const X = (sec) => m.l + (sec / total) * iw;
+  // Tempo: lavere tall er raskere og tegnes høyere opp
+  const Y = (v) => (pace ? m.t + ((v - y0) / (y1 - y0 || 1)) * ih : m.t + ih - ((v - y0) / (y1 - y0 || 1)) * ih);
+  const base = m.t + ih;
+  let line = '', area = '';
+  const items = [];
+  parts.forEach((p, j) => {
+    const x0 = X(p.start), x1 = X(p.start + p.timeSec), y = Y(val(p.speed));
+    const joined = j && parts[j - 1].start + parts[j - 1].timeSec === p.start;
+    line += `${joined ? 'L' : 'M'}${x0.toFixed(1)},${y.toFixed(1)}H${x1.toFixed(1)}`;
+    area += `M${x0.toFixed(1)},${base}V${y.toFixed(1)}H${x1.toFixed(1)}V${base}Z`;
+    const extra = rates.filter((f) => p[f] != null).map((f) => `<br>${CARDIO_FIELDS[f].name}: ${fmtNum(p[f], CARDIO_FIELDS[f].d)}`).join('');
+    items.push({ x: (x0 + x1) / 2, y, tip: `<b>${fmt(val(p.speed))} ${unit}</b>${pace ? ` · ${fmtNum(p.speed, 1)} km/t` : ''}<br>${p.label}: ${fmtDuration(p.start)}–${fmtDuration(p.start + p.timeSec)}${extra}` });
+  });
   const xt = [0, total / 2, total];
-  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Fart per segment">
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${pace ? 'Tempo' : 'Fart'} gjennom økta">
     <g class="grid">${ticks.map((v) => `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(v)}" y2="${Y(v)}"/>`).join('')}</g>
-    <g class="axis">${ticks.map((v) => `<text x="${m.l - 6}" y="${Y(v) + 4}" text-anchor="end">${fmtNum(v, 1)}</text>`).join('')}
+    <g class="axis">${ticks.map((v) => `<text x="${m.l - 6}" y="${Y(v) + 4}" text-anchor="end">${fmt(v)}</text>`).join('')}
       ${xt.map((t, i) => `<text x="${X(t)}" y="${H - 5}" text-anchor="${['start', 'middle', 'end'][i]}">${fmtDuration(t)}</text>`).join('')}</g>
     <path class="series-area" d="${area}"/>
-    <path class="series-line" d="${d}"/>
+    <path class="series-line" d="${line}"/>
     <line class="crosshair" x1="0" x2="0" y1="${m.t}" y2="${m.t + ih}"/>
     <circle class="hover-dot" r="5" cx="0" cy="0"/>
     <rect x="${m.l}" y="0" width="${iw}" height="${H}" fill="transparent"/>
@@ -2069,7 +2120,7 @@ function histDatesInner() {
       <button type="button" data-act="hist-date" data-v="day" aria-pressed="${dm === 'day'}">Dato</button>
       <button type="button" data-act="hist-date" data-v="range" aria-pressed="${dm === 'range'}">Periode</button>
     </div>
-    ${dm === 'day' ? `<input type="date" data-hist-f="day" value="${esc(histUI.day)}" max="${todayISO()}" aria-label="Dato">` : ''}
+    ${dm === 'day' ? `<label class="field">Velg dato<input type="date" data-hist-f="day" value="${esc(histUI.day)}" max="${todayISO()}"></label>` : ''}
     ${dm === 'range' ? `<div class="cardio-grid" style="margin-top:0">
         <label class="field">Fra<input type="date" data-hist-f="from" value="${esc(histUI.from)}" max="${todayISO()}"></label>
         <label class="field">Til<input type="date" data-hist-f="to" value="${esc(histUI.to)}" max="${todayISO()}"></label>
@@ -2343,9 +2394,9 @@ function deltaHtml(cur, prev, prevLabel, fmt = (v) => v) {
 }
 
 // Liggende stolper med verdien skrevet ut (én serie – ingen forklaring nødvendig)
-function hbars(rows) {
+function hbars(rows, type = '') {
   const max = Math.max(1, ...rows.map((r) => r.v));
-  return `<div class="hbars">${rows.map((r) => `<div class="hbar-row">
+  return `<div class="hbars ${type}">${rows.map((r) => `<div class="hbar-row">
       <span class="hbar-label">${esc(r.label)}</span>
       <span class="hbar-track"><span class="hbar-fill" style="width:${(r.v / max) * 100}%"></span></span>
       <span class="hbar-value">${esc(r.text)}</span>
@@ -2648,7 +2699,7 @@ function renderStatsOverview(used) {
       sub: PURPOSES.filter((x) => d.purposes[x.k]).map((x) => row(x.l, d.purposes[x.k])).sort((a, b) => b.v - a.v),
     })).sort((a, b) => b.v - a.v);
     html += kinds.length
-      ? `<p class="chart-sub" style="margin:12px 0 2px">Aktiviteter og type økt</p>${hbars(kinds)}`
+      ? `<p class="chart-sub" style="margin:12px 0 2px">Aktiviteter og type økt</p>${hbars(kinds, 'cardio')}`
       : `<p class="small muted" style="margin-top:12px">Ingen kondisjonsøkter i perioden.</p>`;
   }
   html += `</section>`;
@@ -3038,30 +3089,73 @@ function renderProfile() {
     </form>`;
 }
 
+// Mer: innstillinger som grupperte lister, slik iPhone-apper gjør det
+const MORE_ICONS = {
+  profile: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4.5 20a7.5 7.5 0 0 1 15 0',
+  exercises: 'M3 10v4M6.5 7.5v9M17.5 7.5v9M21 10v4M6.5 12h11',
+  appearance: 'M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.8 1.8-1.8 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4C21 6.6 17 3 12 3zM7.5 12.5h.01M9.5 8h.01M14.5 8h.01',
+  export: 'M12 15V3M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6',
+  import: 'M12 3v12M7 10l5 5 5-5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6',
+  sheet: 'M5 3h14v18H5zM5 9h14M5 15h14M11 3v18',
+  install: 'M12 4v11M7 10l5 5 5-5M5 20h14',
+  privacy: 'M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6zM9 12l2 2 4-4',
+  help: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01',
+  terms: 'M7 3h7l5 5v13H7zM14 3v5h5M10 13h6M10 17h6',
+  mail: 'M4 6h16v12H4zM4 7l8 6 8-6',
+  trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
+};
+const APP_VERSION = '3.1';
+// E-post til kundestøtte med versjon og enhet fylt inn, så det er lettere å hjelpe
+function supportMailto() {
+  const where = isNativeApp() ? 'iPhone-appen' : 'nettappen';
+  const body = `\n\n\n– – –\nTreningsloggen ${APP_VERSION} (${where})\n${navigator.userAgent}`;
+  return `mailto:${LEGAL.email}?subject=${encodeURIComponent('Treningsloggen')}&body=${encodeURIComponent(body)}`;
+}
+function renderLegal(title, html) {
+  setHeader(title, '#/mer');
+  view().innerHTML = `<section class="card legal">${html}</section>`;
+}
+function moreRow({ icon, label, value = '', href, act, file, danger, external }) {
+  const inner = `<span class="more-ico${danger ? ' danger' : ''}"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="${MORE_ICONS[icon]}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+    <span class="more-label">${label}</span>${value ? `<span class="more-value">${esc(value)}</span>` : ''}${danger ? '' : '<span class="more-chev" aria-hidden="true"></span>'}`;
+  const cls = `more-row${danger ? ' danger' : ''}`;
+  if (href) return `<a class="${cls}" href="${href}"${external ? ' target="_blank" rel="noopener"' : ''}>${inner}</a>`;
+  if (file) return `<label class="${cls}">${inner}<input type="file" accept="application/json,.json" data-import hidden></label>`;
+  return `<button type="button" class="${cls}" data-act="${act}">${inner}</button>`;
+}
 function renderMore() {
   setHeader('Mer');
   const bytes = new Blob([localStorage.getItem(STORE_KEY) || '']).size;
+  const n = db.workouts.length;
   view().innerHTML = `
-    <section class="card" style="padding:4px 14px">
-      <a class="ex-option" style="text-decoration:none;color:inherit" href="#/profil"><span>Profil</span><span class="kind">${esc(profileSummary())} ›</span></a>
-      <a class="ex-option" style="text-decoration:none;color:inherit" href="#/ovelser"><span>Øvelser</span><span class="kind">${db.exercises.filter((e) => !e.hidden).length} ›</span></a>
-      <a class="ex-option" style="text-decoration:none;color:inherit" href="#/utseende"><span>Utseende</span><span class="kind">${esc(themeName())} ›</span></a>
-    </section>
+    <div class="more-group">
+      ${moreRow({ icon: 'profile', label: 'Profil', value: profileSummary(), href: '#/profil' })}
+      ${moreRow({ icon: 'exercises', label: 'Øvelser', value: String(db.exercises.filter((e) => !e.hidden).length), href: '#/ovelser' })}
+      ${moreRow({ icon: 'appearance', label: 'Utseende', value: themeName(), href: '#/utseende' })}
+    </div>
 
-    <h2 class="section-title">Sikkerhetskopi</h2>
-    <section class="card stack">
-      <button class="btn primary block" data-act="export">Eksporter data (.json)</button>
-      <label class="btn ghost block" style="cursor:pointer">Importer fra fil
-        <input type="file" accept="application/json,.json" data-import hidden></label>
-      <button class="btn ghost block" data-act="export-csv">Eksporter som regneark (.csv)</button>
-      <p class="small muted">${db.workouts.length} økter · ${fmtNum(bytes / 1024, 0)} kB brukt</p>
-    </section>
+    <h2 class="section-title">Data</h2>
+    <div class="more-group">
+      ${moreRow({ icon: 'export', label: 'Ta sikkerhetskopi', act: 'export' })}
+      ${moreRow({ icon: 'import', label: 'Hent fra sikkerhetskopi', file: true })}
+      ${moreRow({ icon: 'sheet', label: 'Eksporter til regneark', act: 'export-csv' })}
+    </div>
+    <p class="more-foot">${n} ${n === 1 ? 'økt' : 'økter'} · ${fmtNum(bytes / 1024, 0)} kB lagret på denne enheten</p>
 
-    ${installPromptEvent ? `<button class="btn secondary block" data-act="install">Installer appen</button>` : ''}
+    ${installPromptEvent ? `<div class="more-group">${moreRow({ icon: 'install', label: 'Installer appen', act: 'install' })}</div>` : ''}
 
-    <h2 class="section-title">Faresone</h2>
-    <section class="card"><button class="btn danger block btn-destructive" style="margin-top:0" data-act="wipe">Slett alle data</button></section>
-    <p class="small muted" style="text-align:center;margin-top:18px">Treningsloggen · versjon 3.0</p>`;
+    <h2 class="section-title">Om</h2>
+    <div class="more-group">
+      ${moreRow({ icon: 'privacy', label: 'Personvern', href: '#/personvern' })}
+      ${moreRow({ icon: 'help', label: 'Hjelp og kundestøtte', href: '#/kundestotte' })}
+      ${moreRow({ icon: 'terms', label: 'Vilkår for bruk', href: LEGAL.eula, external: true })}
+      ${moreRow({ icon: 'mail', label: 'Kontakt oss', href: supportMailto() })}
+    </div>
+
+    <div class="more-group" style="margin-top:22px">
+      ${moreRow({ icon: 'trash', label: 'Slett alle data', act: 'wipe', danger: true })}
+    </div>
+    <p class="more-foot center">Treningsloggen · versjon ${APP_VERSION}</p>`;
 }
 
 let exListQ = '';
@@ -3166,7 +3260,7 @@ function exportCsv(from, to) {
     ['weight', 'Vekt (kg)'], ['reps', 'Reps'], ['meters', 'Lengde (m)'], ['ok', 'Klarte'], ['sec', 'Tid (sek)'], ['rest', 'Pause (sek)'],
     ['km', 'Distanse (km)'], ['kmh', 'Fart (km/t)'], ['paceKm', 'Tempo (min/km)'], ['pace', 'Tempo (sek/500 m)'],
     ...Object.entries(CARDIO_FIELDS).map(([k, F]) => [k, F.label]),
-    ['hr', 'Snittpuls'], ['kcal', 'Kcal'], ['note', 'Øvelsesnotat'], ['feel', 'Følelse'], ['wnote', 'Øktnotat'],
+    ['hr', 'Snittpuls'], ['maxhr', 'Makspuls'], ['kcal', 'Kcal'], ['note', 'Øvelsesnotat'], ['feel', 'Følelse'], ['wnote', 'Øktnotat'],
   ];
   const rows = [cols.map((c) => c[1])];
   const r2 = (v, d) => (v == null || !Number.isFinite(v) ? '' : +v.toFixed(d));
@@ -3181,7 +3275,7 @@ function exportCsv(from, to) {
         const p = purposeLabel(en.purpose);
         const paceOf = (kmh) => (exCfg(ex).pace && kmh ? fmtDuration(3600 / kmh) : '');
         const fields = (src) => Object.fromEntries(Object.keys(CARDIO_FIELDS).map((k) => [k, r2(src[k], 1)]));
-        push({ ...base, type: 'Kondisjon', mode: p, part: 'Totalt', sec: r2(st.timeSec, 0), km: r2(st.distanceKm, 3), kmh: r2(st.speed, 2), paceKm: paceOf(st.speed), pace: r2(st.pace500, 1), ...fields(st), hr: en.avgHr ?? '', kcal: en.kcal ?? '', note: en.note || '' });
+        push({ ...base, type: 'Kondisjon', mode: p, part: 'Totalt', sec: r2(st.timeSec, 0), km: r2(st.distanceKm, 3), kmh: r2(st.speed, 2), paceKm: paceOf(st.speed), pace: r2(st.pace500, 1), ...fields(st), hr: en.avgHr ?? '', maxhr: en.maxHr ?? '', kcal: en.kcal ?? '', note: en.note || '' });
         resolvedSegments(en).forEach((s, j) => push({ ...base, type: 'Kondisjon', mode: p, part: `Segment ${j + 1}`, sec: r2(s.timeSec, 0), km: r2(s.distanceKm, 3), kmh: r2(s.speed, 2), paceKm: paceOf(s.speed), pace: r2(paceSec(s.speed), 1), ...fields(s) }));
         const iv = intervalTotals(en);
         if (iv) en.intervals.forEach((x, j) => {
@@ -3203,6 +3297,10 @@ function exportCsv(from, to) {
   shareOrDownload(new Blob([csv], { type: "text/csv" }), `treningsloggen-${range}.csv`);
 }
 async function shareOrDownload(blob, name) {
+  if (window.nativeApp) {
+    try { await window.nativeApp.shareFile(blob, name); } catch (e) { if (!/cancel/i.test(e?.message || '')) toast('Kunne ikke dele fila'); }
+    return;
+  }
   const file = new File([blob], name, { type: blob.type });
   if (navigator.canShare && navigator.canShare({ files: [file] }) && /Android|iPhone|iPad/i.test(navigator.userAgent)) {
     try { await navigator.share({ files: [file], title: name }); return; } catch (e) { if (e.name === 'AbortError') return; }
@@ -3604,6 +3702,14 @@ const actions = {
     form.elements.weeklyGoal.value = v;
     form.querySelector('[data-goal-value]').textContent = v || 'Av';
   },
+  'ob-next': () => { if (obStep < OB_STEPS - 1) { obStep++; renderOnboarding(); } else finishOnboarding(); },
+  'ob-back': () => { obStep = Math.max(0, obStep - 1); renderOnboarding(); },
+  // «Hopp over» på profilen lar feltene stå tomme
+  'ob-skip': () => { if (obStep === 2) Object.assign(obDraft, { name: '', gender: '', age: null }); obStep++; renderOnboarding(); },
+  'ob-goal': (el) => { obDraft.weeklyGoal = Math.max(0, Math.min(21, (obDraft.weeklyGoal || 0) + +el.dataset.d)); renderOnboarding(); },
+  'ob-gender': (el) => { obDraft.gender = el.dataset.v; renderOnboarding(); },
+  'ob-theme': (el) => { setAppearance(el.dataset.v, savedMode()); renderOnboarding(); },
+  'ob-mode': (el) => { setAppearance(currentTheme(), el.dataset.v); renderOnboarding(); },
   'save-profile': (el) => {
     const f = el.closest('form').elements;
     const age = num(f.age.value);
@@ -3767,6 +3873,7 @@ document.addEventListener('input', (ev) => {
   if (t.matches('[data-tpl-name]')) { if (tplDraft) tplDraft.name = t.value; return; }
   if (t.matches('[data-hist-q]')) { histUI.q = t.value; renderHistoryResults(); return; }
   if (t.matches('[data-prog-q]')) { statsUI.progQ = t.value; renderProgressList(); return; }
+  if (t.matches('[data-ob]')) { obDraft[t.dataset.ob] = t.value; return; }
   if (t.matches('[data-exlist-q]')) { exListQ = t.value; $('#ex-list').innerHTML = exerciseList(); return; }
   const d = db.draft;
   if (!d) return;
@@ -3885,17 +3992,125 @@ document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') closeShe
 /* ---------- Installasjon / offline ---------- */
 let installPromptEvent = null;
 const isIOS = () => /iPhone|iPad|iPod/i.test(navigator.userAgent);
-const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isNativeApp = () => !!window.Capacitor?.isNativePlatform?.();
+const isStandalone = () => isNativeApp() || matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   installPromptEvent = e;
   if (!location.hash || location.hash === '#/' || location.hash === '#/mer') route();
 });
-if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+// iOS-appen har filene med seg og trenger ikke service worker
+if ('serviceWorker' in navigator && location.protocol !== 'file:' && !isNativeApp()) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 }
 
+/* ---------- Velkomst første gang appen åpnes ----------
+   Bare i iOS-appen (nettappen er testverktøyet). Vises ikke når det allerede finnes økter,
+   f.eks. etter at man har hentet inn en sikkerhetskopi. Kan testes i nettleseren med ?velkommen. */
+const OB_STEPS = 4;
+let obStep = 0, obDraft = null;
+const needsOnboarding = () => isNativeApp() && !db.onboarded && !db.workouts.length;
+const OB_LOGO = `<svg viewBox="92 142 328 228" width="96" height="67" aria-hidden="true"><g fill="var(--accent)">
+  <rect x="96" y="176" width="40" height="160" rx="14"/><rect x="144" y="146" width="48" height="220" rx="16"/>
+  <rect x="320" y="146" width="48" height="220" rx="16"/><rect x="376" y="176" width="40" height="160" rx="14"/>
+  <rect x="192" y="238" width="128" height="36" rx="8"/></g></svg>`;
+const OB_FEATURES = [
+  ['M3 10v4M6.5 7.5v9M17.5 7.5v9M21 10v4M6.5 12h11', 'Rask registrering', 'Logg sett, vekt, tid og distanse. Appen husker hva du gjorde sist.'],
+  ['M4 6h16M4 12h16M4 18h10', 'Full oversikt', 'Alle øktene samlet, i mapper eller etter dato.'],
+  ['M4 19h16M6 15l4-5 3 3 5-7', 'Statistikk som motiverer', 'Rekorder, muskelanalyse og månedlige rapporter viser fremgangen din.'],
+];
+
+function openOnboarding() {
+  const p = db.profile || {};
+  obStep = 0;
+  obDraft = { name: p.name || '', gender: p.gender || '', age: p.age ?? null, weeklyGoal: p.weeklyGoal || 3 };
+  let el = document.getElementById('onboarding');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'onboarding';
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-modal', 'true');
+    el.setAttribute('aria-label', 'Kom i gang');
+    document.body.appendChild(el);
+  }
+  renderOnboarding();
+}
+
+function renderOnboarding() {
+  const el = document.getElementById('onboarding');
+  if (!el) return;
+  const d = obDraft;
+  const step = [
+    () => `<div class="ob-center">
+        <div class="ob-logo">${OB_LOGO}</div>
+        <h1>Velkommen til Treningsloggen</h1>
+        <p class="ob-lead">Loggfør styrke- og kondisjonsøktene dine og se hvordan du blir sterkere og sprekere.</p>
+      </div>`,
+    () => `<h2>Dette får du</h2>
+      <ul class="ob-features">${OB_FEATURES.map(([icon, title, text]) => `<li>
+        <span class="more-ico"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="${icon}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <div><b>${title}</b><p>${text}</p></div></li>`).join('')}</ul>`,
+    () => `<h2>Om deg</h2>
+      <p class="ob-lead">Alt er valgfritt og lagres bare på telefonen.</p>
+      <label class="field">Navn<input data-ob="name" maxlength="40" value="${esc(d.name)}" placeholder="Hva vil du kalles?" autocomplete="given-name"></label>
+      <div class="iv-stepper ob-goal">
+        <span>Ukemål</span>
+        <div class="stepper">
+          <button type="button" data-act="ob-goal" data-d="-1" aria-label="Færre økter">−</button>
+          <b>${d.weeklyGoal ? `${d.weeklyGoal} økter` : 'Av'}</b>
+          <button type="button" data-act="ob-goal" data-d="1" aria-label="Flere økter">+</button>
+        </div>
+      </div>
+      <div><label class="field">Kjønn</label>
+        <div class="chips" style="margin-top:6px">${GENDERS.map(([v, l]) => `<button type="button" class="chip" data-act="ob-gender" data-v="${v}" aria-pressed="${d.gender === v}">${l}</button>`).join('')}</div>
+      </div>
+      <label class="field">Alder (år)<input data-ob="age" inputmode="numeric" value="${inputVal(d.age)}" placeholder="–"></label>`,
+    () => {
+      const shown = shownMode();
+      return `<h2>Velg utseende</h2>
+        <p class="ob-lead">Du kan endre dette senere under Mer → Utseende.</p>
+        <div class="theme-picker" role="group" aria-label="Farge">
+          ${THEMES.map((t) => {
+            const p = t[shown];
+            return `<button type="button" class="theme-option" data-act="ob-theme" data-v="${t.id}" aria-pressed="${currentTheme() === t.id}">
+              <span class="theme-swatch" style="--p-bg:${p.bg};--p-card:${p.card};--p-text:${p.text};--p-accent:${p.accent}"><i></i><i></i><b></b></span>${t.name}</button>`;
+          }).join('')}
+        </div>
+        <div class="seg-toggle three" role="group" aria-label="Modus" style="margin-top:16px">
+          ${MODES.map(([v, l]) => `<button type="button" data-act="ob-mode" data-v="${v}" aria-pressed="${savedMode() === v}">${l}</button>`).join('')}
+        </div>`;
+    },
+  ][obStep]();
+  const next = ['Kom i gang', 'Neste', 'Neste', 'Start'][obStep];
+  el.innerHTML = `<div class="ob-top">
+      ${obStep ? '<button type="button" class="icon-btn" data-act="ob-back" aria-label="Tilbake"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>' : '<span></span>'}
+      <div class="ob-dots" aria-label="Trinn ${obStep + 1} av ${OB_STEPS}">${Array.from({ length: OB_STEPS }, (_, i) => `<i class="${i === obStep ? 'on' : ''}"></i>`).join('')}</div>
+      ${obStep === 1 || obStep === 2 ? '<button type="button" class="link-btn" data-act="ob-skip">Hopp over</button>' : '<span></span>'}
+    </div>
+    <div class="ob-body" data-step="${obStep}">${step}</div>
+    <div class="ob-foot"><button type="button" class="btn primary block big" data-act="ob-next">${next}</button></div>`;
+}
+
+function finishOnboarding() {
+  const age = num(obDraft.age);
+  db.profile = {
+    ...db.profile,
+    name: obDraft.name.trim(),
+    gender: obDraft.gender,
+    age: age != null && age >= 5 && age <= 120 ? Math.round(age) : null,
+    weeklyGoal: obDraft.weeklyGoal || null,
+    updatedAt: Date.now(),
+  };
+  db.onboarded = true;
+  save();
+  const el = document.getElementById('onboarding');
+  el.classList.add('ob-out');
+  setTimeout(() => el.remove(), 300);
+  if (location.hash && location.hash !== '#/') location.hash = '#/'; else route();
+}
+
 route();
+if (needsOnboarding() || new URLSearchParams(location.search).has('velkommen')) openOnboarding();
 
 // Fjern introskjermen når uttoningen er ferdig (reserve etter 4 sek)
 (() => {

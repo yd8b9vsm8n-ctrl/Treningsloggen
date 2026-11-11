@@ -964,3 +964,56 @@ mark { background: rgb(var(--accent-rgb) / .22); color: var(--text); border-radi
 .hbar-sub-head b { font-weight: 700; color: var(--text); }
 .hbar-sub-head span:last-child { font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .hbar-track.thin { display: block; height: 5px; }
+.hbars.cardio .hbar-fill { background: var(--series-cardio); }
+
+/* ---------- Mer: grupperte innstillingslister ---------- */
+.more-group { margin: 12px 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+.more-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 54px; padding: 8px 16px;
+  border: 0; background: none; color: var(--text); font: inherit; font-size: 16px; text-align: left; text-decoration: none; cursor: pointer;
+}
+.more-row + .more-row { border-top: 1px solid var(--border); }
+.more-row:active { background: rgb(var(--tint-rgb) / .06); }
+.more-ico { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); }
+.more-ico.danger { background: color-mix(in oklab, var(--danger) 16%, transparent); color: var(--danger); }
+.more-label { flex: 1; min-width: 0; font-weight: 600; }
+.more-row.danger .more-label { color: var(--danger); }
+.more-value { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--muted); }
+.more-chev { flex: none; width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(-45deg); margin-right: 2px; opacity: .7; }
+.more-foot { margin: -4px 4px 0; font-size: 13px; color: var(--muted); }
+.more-foot.center { margin-top: 18px; text-align: center; }
+/* Personvern og kundestøtte i appen */
+.legal h2 { display: none; } /* tittelen står allerede i toppfeltet */
+.legal h3 { font-size: 16px; margin: 20px 0 4px; }
+.legal p { margin: 0 0 10px; font-size: 15px; line-height: 1.55; color: var(--text-2); }
+.legal p b { color: var(--text); }
+.legal a { color: var(--accent); }
+.legal .legal-date { font-size: 13px; color: var(--muted); }
+
+/* ---------- Velkomst første gang appen åpnes ---------- */
+#onboarding {
+  position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column;
+  padding: calc(env(safe-area-inset-top) + 8px) 20px calc(env(safe-area-inset-bottom) + 16px);
+  background: radial-gradient(70% 45% at 50% 30%, rgb(var(--accent-rgb) / .12), transparent 70%), var(--bg);
+  color: var(--text); transition: opacity .3s;
+}
+#onboarding.ob-out { opacity: 0; pointer-events: none; }
+.ob-top { display: grid; grid-template-columns: 64px 1fr 64px; align-items: center; min-height: 44px; }
+.ob-top .icon-btn { margin-left: -10px; }
+.ob-top .link-btn { justify-self: end; font-size: 15px; }
+.ob-dots { display: flex; justify-content: center; gap: 7px; }
+.ob-dots i { width: 7px; height: 7px; border-radius: 50%; background: rgb(var(--tint-rgb) / .18); transition: width .25s, background .25s; }
+.ob-dots i.on { width: 22px; border-radius: 999px; background: var(--accent); }
+.ob-body { flex: 1; overflow-y: auto; padding: 18px 0 12px; display: flex; flex-direction: column; gap: 14px; animation: fade .25s ease; }
+.ob-body h1 { font-size: 30px; line-height: 1.15; font-weight: 800; letter-spacing: -.02em; margin: 0; }
+.ob-body h2 { font-size: 26px; font-weight: 800; letter-spacing: -.02em; margin: 6px 0 0; }
+.ob-lead { margin: 0; font-size: 16px; line-height: 1.5; color: var(--text-2); }
+.ob-center { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 14px; }
+.ob-logo { display: grid; place-items: center; width: 132px; height: 132px; border-radius: 32px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); margin-bottom: 10px; }
+.ob-features { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 18px; }
+.ob-features li { display: flex; gap: 14px; align-items: flex-start; }
+.ob-features .more-ico { width: 42px; height: 42px; border-radius: 12px; }
+.ob-features b { display: block; font-size: 17px; }
+.ob-features p { margin: 2px 0 0; font-size: 15px; line-height: 1.45; color: var(--text-2); }
+.ob-goal { margin-top: 2px; }
+.ob-foot { padding-top: 8px; }
