@@ -3104,11 +3104,13 @@ const MORE_ICONS = {
   mail: 'M4 6h16v12H4zM4 7l8 6 8-6',
   trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
 };
-const APP_VERSION = '3.1';
+const APP_VERSION = '3.2';
+// I iOS-appen vises appens eget versjonsnummer, i nettappen APP_VERSION
+const appVersion = () => window.nativeApp?.version || APP_VERSION;
 // E-post til kundestøtte med versjon og enhet fylt inn, så det er lettere å hjelpe
 function supportMailto() {
   const where = isNativeApp() ? 'iPhone-appen' : 'nettappen';
-  const body = `\n\n\n– – –\nTreningsloggen ${APP_VERSION} (${where})\n${navigator.userAgent}`;
+  const body = `\n\n\n– – –\nTreningsloggen ${appVersion()} (${where})\n${navigator.userAgent}`;
   return `mailto:${LEGAL.email}?subject=${encodeURIComponent('Treningsloggen')}&body=${encodeURIComponent(body)}`;
 }
 function renderLegal(title, html) {
@@ -3155,7 +3157,7 @@ function renderMore() {
     <div class="more-group" style="margin-top:22px">
       ${moreRow({ icon: 'trash', label: 'Slett alle data', act: 'wipe', danger: true })}
     </div>
-    <p class="more-foot center">Treningsloggen · versjon ${APP_VERSION}</p>`;
+    <p class="more-foot center">Treningsloggen · versjon ${appVersion()}</p>`;
 }
 
 let exListQ = '';
@@ -3211,7 +3213,8 @@ function csvPresets() {
 function openCsvExport() {
   if (!db.workouts.length) { toast('Ingen økter å eksportere ennå'); return; }
   const p = csvPresets();
-  openSheet(`<h2>Eksporter som regneark</h2>
+  openSheet(`<h2>Eksporter til regneark</h2>
+    <p class="small muted" style="margin-top:-4px">Excel-fil med oversikt, diagrammer og alle økter – fin å dele med en PT.</p>
     <form class="stack" data-form="csv" onsubmit="return false">
       <div class="chips">${Object.entries(p).map(([k, [l]]) => `<button type="button" class="chip" data-act="csv-range" data-v="${k}" aria-pressed="${k === 'all'}">${l}</button>`).join('')}</div>
       <div class="cardio-grid" style="margin-top:0">
@@ -3253,48 +3256,168 @@ document.addEventListener('change', (ev) => {
   updateCsvCount();
 });
 
-function exportCsv(from, to) {
-  // Én rad per sett / forsøk / segment / drag. Kolonner: [nøkkel, overskrift]
-  const cols = [
-    ['date', 'Dato'], ['folder', 'Mappe'], ['ex', 'Øvelse'], ['type', 'Type'], ['mode', 'Modus / formål'], ['part', 'Sett / segment'],
-    ['weight', 'Vekt (kg)'], ['reps', 'Reps'], ['meters', 'Lengde (m)'], ['ok', 'Klarte'], ['sec', 'Tid (sek)'], ['rest', 'Pause (sek)'],
-    ['km', 'Distanse (km)'], ['kmh', 'Fart (km/t)'], ['paceKm', 'Tempo (min/km)'], ['pace', 'Tempo (sek/500 m)'],
-    ...Object.entries(CARDIO_FIELDS).map(([k, F]) => [k, F.label]),
-    ['hr', 'Snittpuls'], ['maxhr', 'Makspuls'], ['kcal', 'Kcal'], ['note', 'Øvelsesnotat'], ['feel', 'Følelse'], ['wnote', 'Øktnotat'],
-  ];
-  const rows = [cols.map((c) => c[1])];
-  const r2 = (v, d) => (v == null || !Number.isFinite(v) ? '' : +v.toFixed(d));
-  const inRange = (w) => (!from || w.date >= from) && (!to || w.date <= to);
-  for (const w of [...sortedWorkouts()].reverse().filter(inRange)) {
-    for (const en of w.entries) {
-      const ex = exById(en.exerciseId);
-      const base = { date: w.date, folder: folderById(w.folderId)?.name || '', ex: ex.name, feel: w.feeling ?? '', wnote: w.note || '' };
-      const push = (o) => rows.push(cols.map(([k]) => o[k] ?? ''));
-      if (ex.kind === 'cardio') {
-        const st = cardioStats(en) || {};
-        const p = purposeLabel(en.purpose);
-        const paceOf = (kmh) => (exCfg(ex).pace && kmh ? fmtDuration(3600 / kmh) : '');
-        const fields = (src) => Object.fromEntries(Object.keys(CARDIO_FIELDS).map((k) => [k, r2(src[k], 1)]));
-        push({ ...base, type: 'Kondisjon', mode: p, part: 'Totalt', sec: r2(st.timeSec, 0), km: r2(st.distanceKm, 3), kmh: r2(st.speed, 2), paceKm: paceOf(st.speed), pace: r2(st.pace500, 1), ...fields(st), hr: en.avgHr ?? '', maxhr: en.maxHr ?? '', kcal: en.kcal ?? '', note: en.note || '' });
-        resolvedSegments(en).forEach((s, j) => push({ ...base, type: 'Kondisjon', mode: p, part: `Segment ${j + 1}`, sec: r2(s.timeSec, 0), km: r2(s.distanceKm, 3), kmh: r2(s.speed, 2), paceKm: paceOf(s.speed), pace: r2(paceSec(s.speed), 1), ...fields(s) }));
-        const iv = intervalTotals(en);
-        if (iv) en.intervals.forEach((x, j) => {
-          const r = iv.parts[j];
-          push({ ...base, type: 'Kondisjon', mode: p, part: `Drag ${j + 1}`, sec: r2(r.timeSec, 0), rest: j < en.intervals.length - 1 ? x.restSec ?? '' : '', km: r2(r.distanceKm, 3), kmh: r2(r.speed, 2), paceKm: paceOf(r.speed), pace: r2(paceSec(r.speed), 1), ...fields(x) });
-        });
-      } else if (en.mode === 'max') {
-        en.attempts.forEach((a, j) => push({ ...base, type: 'Styrke', mode: '1RM-test', part: j + 1, weight: a.weight ?? '', reps: 1, ok: a.ok ? 'Ja' : 'Nei', note: en.note || '' }));
-      } else {
-        en.sets.forEach((s, j) => push({ ...base, type: 'Styrke', mode: { time: 'Tid', distance: 'Lengde' }[exMeasure(ex)] || 'Repetisjoner', part: j + 1, weight: s.weight ?? '', reps: s.reps ?? '', sec: s.sec ?? '', meters: s.meters ?? '', note: en.note || '' }));
-      }
+// Regneark (.xlsx) til eget bruk eller til en PT: oversikt med diagrammer, økter, styrke, kondisjon og fremgang
+const RECORD_INFO = {
+  repWeight: ['Tyngste vekt', 'kg', '0.0'], tested: ['1RM', 'kg', '0.0'], carryWeight: ['Tyngste bæring', 'kg', '0.0'],
+  maxMeters: ['Lengste distanse', 'm', '0'], maxSec: ['Lengste tid', 'sek', '0'], distanceKm: ['Distanse', 'km', '0.00'], speed: ['Fart', 'km/t', '0.0'],
+};
+function exportXlsx(from, to) {
+  const ORANGE = 'EC6100', BLUE = '3D96EA', HEAD = '262626', ZEBRA = 'F4F4F4', MUTED = '767676';
+  const inRange = (d) => (!from || d >= from) && (!to || d <= to);
+  const ws = [...sortedWorkouts()].reverse().filter((w) => inRange(w.date));
+  const first = from || ws[0].date, last = to || ws[ws.length - 1].date;
+  const ok = (v) => v != null && Number.isFinite(v) && v !== 0;
+  const D = (iso, s) => ({ v: XLSX.date(iso), s: { fmt: 'dd.mm.yyyy', ...s } });
+  const N = (v, fmt, s) => (ok(v) ? { v: +v, s: { fmt, ...s } } : null);
+  // Hele sekunder: Excel viser ellers f.eks. 119,5 sek som «2:59»
+  const T = (sec, s) => (ok(sec) ? { v: Math.round(sec) / 86400, s: { fmt: '[m]:ss', ...s } } : null);
+  const head = (labels) => labels.map((l) => ({ v: l, s: { bold: true, color: 'FFFFFF', fill: HEAD } }));
+  const title = (v) => [{ v, s: { bold: true, size: 18 } }];
+  const section = (v) => [{ v, s: { bold: true, size: 13 } }];
+  const muted = (v) => [{ v, s: { color: MUTED } }];
+  // Annenhver økt får grå bakgrunn, så det er lett å se hvor en økt slutter
+  const shade = (row, on) => (on ? row.map((c) => (c == null ? { v: null, s: { fill: ZEBRA } } : typeof c === 'object' ? { v: c.v, s: { ...c.s, fill: ZEBRA } } : { v: c, s: { fill: ZEBRA } })) : row);
+  const period = `${fmtDate(first, { day: 'numeric', month: 'short', year: 'numeric' })} – ${fmtDate(last, { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  const name = db.profile?.name?.trim();
+  const sheets = [];
+
+  /* ---------- Oversikt ---------- */
+  const amount = monthAmount(ws);
+  const recs = recordEvents().filter((r) => inRange(r.date));
+  const weeksSpan = Math.round((weekStart(dateObj(last)) - weekStart(dateObj(first))) / (7 * 864e5)) + 1;
+  // Korte perioder per uke, lange per måned (ellers blir diagrammene uleselige)
+  const byMonth = weeksSpan > 26;
+  const buckets = [];
+  if (byMonth) {
+    for (let ym = first.slice(0, 7); ym <= last.slice(0, 7); ym = shiftYm(ym, 1)) {
+      buckets.push({ label: dateObj(`${ym}-15`).toLocaleDateString('nb-NO', { month: 'short', year: 'numeric' }), start: `${ym}-01`, ws: ws.filter((w) => w.date.startsWith(ym)) });
+    }
+  } else {
+    for (let d = weekStart(dateObj(first)); isoDay(d) <= last; d.setDate(d.getDate() + 7)) {
+      const s = isoDay(d), e = new Date(d); e.setDate(e.getDate() + 6);
+      buckets.push({ label: `Uke ${isoWeek(d)}`, start: s, ws: ws.filter((w) => w.date >= s && w.date <= isoDay(e)) });
     }
   }
-  const csv = '﻿' + rows.map((r) => r.map((c) => {
-    const s = String(c).replace('.', ',');
-    return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  }).join(';')).join('\n');
-  const range = from || to ? `${from || "start"}_til_${to || todayISO()}` : todayISO();
-  shareOrDownload(new Blob([csv], { type: "text/csv" }), `treningsloggen-${range}.csv`);
+  const kpis = [
+    ['Økter', amount.n, '0'], ['Styrkeøkter', amount.strengthN, '0'], ['Kondisjonsøkter', amount.cardioN, '0'],
+    ['Treningstid (timer)', amount.mins / 60, '0.0'], ['Snitt økter per uke', amount.n / Math.max(1, weeksSpan), '0.0'],
+    ['Arbeidssett', amount.sets, '#,##0'], ['Volum (kg)', amount.volume, '#,##0'], ['Distanse (km)', amount.km, '0.0'], ['Nye rekorder', recs.length, '0'],
+  ];
+  const o = [title('Treningsrapport'), muted(`${name ? `${name} · ` : ''}${period}`), muted(`Laget med Treningsloggen ${fmtDate(todayISO(), { day: 'numeric', month: 'short', year: 'numeric' })}`), null, section('Nøkkeltall')];
+  for (const [l, v, fmt] of kpis) o.push([{ v: l, s: { color: MUTED, border: 'E6E6E6' } }, { v: Math.round(v * 10) / 10 || 0, s: { bold: true, fmt, border: 'E6E6E6' } }]);
+  o.push(null, section(byMonth ? 'Per måned' : 'Per uke'));
+  const tableTop = o.length;
+  o.push(head([byMonth ? 'Måned' : 'Uke', 'Fra', 'Styrkeøkter', 'Kondisjonsøkter', 'Tid styrke (min)', 'Tid kondisjon (min)', 'Volum (kg)', 'Distanse (km)']));
+  for (const b of buckets) {
+    const a = monthAmount(b.ws);
+    o.push([b.label, D(b.start), a.strengthN, a.cardioN, Math.round(a.strengthMins), Math.round(a.cardioMins), { v: Math.round(a.volume), s: { fmt: '#,##0' } }, { v: Math.round(a.km * 10) / 10, s: { fmt: '0.0' } }]);
+  }
+  const r1 = tableTop + 2, r2 = tableTop + 1 + buckets.length;
+  if (recs.length) {
+    o.push(null, section('Rekorder i perioden'), head(['Dato', 'Øvelse', 'Rekord', 'Ny verdi', 'Økning', 'Enhet']));
+    for (const r of [...recs].reverse()) {
+      const [label, unit, fmt] = RECORD_INFO[r.k];
+      o.push([D(r.date), exById(r.exId).name, label, { v: r.v, s: { fmt } }, { v: r.v - r.prev, s: { fmt: `+${fmt};-${fmt}` } }, unit]);
+    }
+  }
+  const unit = byMonth ? 'måned' : 'uke';
+  const oCharts = [
+    { type: 'stacked', title: `Økter per ${unit}`, from: [9, 4], to: [18, 21], cats: `A${r1}:A${r2}`, series: [{ name: 'Styrke', ref: `C${r1}:C${r2}`, color: ORANGE }, { name: 'Kondisjon', ref: `D${r1}:D${r2}`, color: BLUE }] },
+    { type: 'stacked', title: `Treningstid per ${unit} (min)`, from: [9, 22], to: [18, 39], cats: `A${r1}:A${r2}`, series: [{ name: 'Styrke', ref: `E${r1}:E${r2}`, color: ORANGE }, { name: 'Kondisjon', ref: `F${r1}:F${r2}`, color: BLUE }] },
+  ];
+  if (amount.volume) oCharts.push({ type: 'bar', title: `Volum per ${unit} (kg)`, from: [9, 40], to: [18, 57], cats: `A${r1}:A${r2}`, series: [{ name: 'Volum', ref: `G${r1}:G${r2}`, color: ORANGE }], valFmt: '#,##0' });
+  sheets.push({ name: 'Oversikt', cols: [22, 14, 13, 15, 16, 18, 12, 13, 3], rows: o, charts: oCharts, gridlines: false, heights: { 0: 28 } });
+
+  /* ---------- Økter ---------- */
+  const wRows = [head(['Dato', 'Dag', 'Type', 'Varighet (min)', 'Form', 'Øvelser', 'Arbeidssett', 'Volum (kg)', 'Distanse (km)', 'Mappe', 'Notat'])];
+  ws.forEach((w, i) => {
+    const a = monthAmount([w]), t = workoutTypes(w);
+    const feel = FEELINGS.find((f) => f.v === w.feeling);
+    wRows.push(shade([D(w.date), dateObj(w.date).toLocaleDateString('nb-NO', { weekday: 'short' }), t.strength && t.cardio ? 'Styrke + kondisjon' : t.cardio ? 'Kondisjon' : 'Styrke',
+      N(w.durationMin, '0'), feel ? feel.l : null, w.entries.map((e) => exById(e.exerciseId).name).join(', '), N(a.sets, '0'), N(a.volume, '#,##0'), N(a.km, '0.00'),
+      folderById(w.folderId)?.name || null, w.note || null], i % 2));
+  });
+  sheets.push({ name: 'Økter', cols: [12, 6, 18, 14, 10, 44, 12, 12, 13, 16, 40], rows: wRows, freeze: 1, filter: `A1:K${wRows.length}` });
+
+  /* ---------- Styrke ---------- */
+  const sRows = [head(['Dato', 'Øvelse', 'Kategori', 'Sett', 'Vekt (kg)', 'Reps', 'Tid', 'Lengde (m)', 'Volum (kg)', 'Merknad'])];
+  let shadeOn = false;
+  for (const w of ws) {
+    const strength = w.entries.filter((e) => exById(e.exerciseId).kind !== 'cardio');
+    if (!strength.length) continue;
+    for (const en of strength) {
+      const ex = exById(en.exerciseId);
+      if (en.mode === 'max') {
+        (en.attempts || []).filter((a) => a.weight > 0).forEach((a, j) => sRows.push(shade([D(w.date), ex.name, ex.cat || '', `Forsøk ${j + 1}`, N(a.weight, '0.0'), 1, null, null, null, `1RM-test: ${a.ok ? 'klarte' : 'bommet'}${j === 0 && en.note ? ` · ${en.note}` : ''}`], shadeOn)));
+      } else {
+        (en.sets || []).filter(setDone).forEach((s, j) => sRows.push(shade([D(w.date), ex.name, ex.cat || '', j + 1, N(s.weight, '0.0'), N(s.reps, '0'), T(s.sec), N(s.meters, '0'),
+          s.reps && s.weight ? { v: s.reps * s.weight, s: { fmt: '#,##0' } } : null, j === 0 && en.note ? en.note : null], shadeOn)));
+      }
+    }
+    shadeOn = !shadeOn;
+  }
+  if (sRows.length > 1) sheets.push({ name: 'Styrke', cols: [12, 26, 16, 10, 11, 8, 9, 12, 12, 36], rows: sRows, freeze: 1, filter: `A1:J${sRows.length}` });
+
+  /* ---------- Kondisjon ---------- */
+  const fieldKeys = Object.keys(CARDIO_FIELDS).filter((k) => ws.some((w) => w.entries.some((en) => exById(en.exerciseId).kind === 'cardio' &&
+    [en, ...(en.segments || []), ...(en.intervals || [])].some((p) => p[k] != null))));
+  const cRows = [head(['Dato', 'Øvelse', 'Type økt', 'Del', 'Tid', 'Distanse (km)', 'Fart (km/t)', 'Tempo (/km)', 'Tempo (/500 m)', 'Pause', 'Snittpuls', 'Makspuls', ...fieldKeys.map((k) => CARDIO_FIELDS[k].label), 'Notat'])];
+  shadeOn = false;
+  for (const w of ws) {
+    const cardio = w.entries.filter((e) => exById(e.exerciseId).kind === 'cardio');
+    if (!cardio.length) continue;
+    for (const en of cardio) {
+      const ex = exById(en.exerciseId), cfg = exCfg(ex), st = cardioStats(en) || {};
+      const pace = (kmh) => (cfg.speed === 'kmh' && kmh ? T(3600 / kmh) : null), p500 = (kmh) => (cfg.speed === 'pace500' && kmh ? T(1800 / kmh) : null);
+      const row = (part, p, src, extra, bold) => {
+        const b = bold ? { bold: true } : undefined;
+        return shade([D(w.date, b), { v: ex.name, s: b }, purposeLabel(en.purpose) || null, { v: part, s: b }, T(p.timeSec, b), N(p.distanceKm, '0.00', b), N(p.speed, '0.0', b), pace(p.speed), p500(p.speed),
+          T(extra.rest), N(extra.hr, '0'), N(extra.maxHr, '0'), ...fieldKeys.map((k) => N(src[k], CARDIO_FIELDS[k].d ? '0.0' : '0')), extra.note || null], shadeOn);
+      };
+      cRows.push(row('Totalt', st, st, { hr: en.avgHr, maxHr: en.maxHr, note: en.note }, true));
+      resolvedSegments(en).forEach((s, j) => cRows.push(row(`Segment ${j + 1}`, s, s, {})));
+      const iv = intervalTotals(en);
+      if (iv) {
+        const ivs = (en.intervals || []).filter((x) => x.timeSec > 0 || x.distanceKm > 0);
+        iv.parts.forEach((p, j) => cRows.push(row(`Drag ${j + 1}`, p, ivs[j], { rest: j < ivs.length - 1 ? ivs[j].restSec : null })));
+      }
+    }
+    shadeOn = !shadeOn;
+  }
+  const lastCol = XLSX.col(cRows[0].length - 1);
+  if (cRows.length > 1) sheets.push({ name: 'Kondisjon', cols: [12, 20, 20, 11, 9, 13, 11, 11, 13, 8, 10, 10, ...fieldKeys.map(() => 14), 36], rows: cRows, freeze: 1, filter: `A1:${lastCol}${cRows.length}` });
+
+  /* ---------- Fremgang: utvikling i de mest brukte øvelsene ---------- */
+  const count = (id) => ws.reduce((a, w) => a + w.entries.filter((e) => e.exerciseId === id).length, 0);
+  const used = [...new Set(ws.flatMap((w) => w.entries.map((e) => e.exerciseId)))].map(exById);
+  const topStrength = used.filter((e) => e.kind !== 'cardio' && exMeasure(e) === 'reps').sort((a, b) => count(b.id) - count(a.id)).slice(0, 5);
+  const topCardio = used.filter((e) => e.kind === 'cardio').sort((a, b) => count(b.id) - count(a.id)).slice(0, 2);
+  const f = [title('Fremgang'), muted('De mest brukte øvelsene i perioden'), null];
+  const fCharts = [];
+  const block = (ex, cols, pick, chartTitle, valFmt, color) => {
+    const hist = historyFor(ex.id).filter((h) => inRange(h.w.date) && pick(h)[0] != null);
+    if (!hist.length) return;
+    const top = f.length;
+    f.push(section(ex.name), head(['Dato', ...cols]));
+    for (const h of hist) f.push([D(h.w.date), ...pick(h).map((v, i) => (i === 0 || v == null ? (v == null ? null : { v, s: { fmt: valFmt } }) : v))]);
+    const a = top + 3, b = top + 2 + hist.length;
+    if (hist.length > 1) fCharts.push({ type: 'line', title: chartTitle, from: [5, top], to: [13, top + 15], cats: `A${a}:A${b}`, catNum: true, catFmt: 'dd.mm', series: [{ name: cols[0], ref: `B${a}:B${b}`, color }], valFmt });
+    const end = Math.max(f.length, top + 17);
+    while (f.length < end) f.push(null);
+  };
+  for (const ex of topStrength) {
+    block(ex, ['Tyngste vekt (kg)', 'Reps totalt', 'Volum (kg)'], (h) => [h.st.repWeight ?? h.st.tested ?? null, h.st.totalReps || null, h.st.volume ? { v: h.st.volume, s: { fmt: '#,##0' } } : null], `${ex.name}: tyngste vekt (kg)`, '0.0', ORANGE);
+  }
+  for (const ex of topCardio) {
+    const cfg = exCfg(ex);
+    block(ex, ['Distanse (km)', 'Tid', cfg.speed === 'pace500' ? 'Tempo (/500 m)' : 'Fart (km/t)'],
+      (h) => [h.st.distanceKm ? Math.round(h.st.distanceKm * 100) / 100 : null, T(h.st.timeSec), cfg.speed === 'pace500' ? T(h.st.pace500) : N(h.st.speed, '0.0')], `${ex.name}: distanse (km)`, '0.00', BLUE);
+  }
+  if (f.length === 3) f.push(muted('For lite data i perioden til å vise utvikling.'));
+  sheets.push({ name: 'Fremgang', cols: [12, 17, 13, 14, 3], rows: f, charts: fCharts, gridlines: false, heights: { 0: 28 } });
+
+  const blob = XLSX.build({ title: `Treningsrapport ${period}`, sheets });
+  shareOrDownload(blob, `treningsloggen-${first}_til_${last}.xlsx`);
 }
 async function shareOrDownload(blob, name) {
   if (window.nativeApp) {
@@ -3839,7 +3962,7 @@ const actions = {
     const { from, to } = csvRangeValues();
     if (!csvCount(from, to)) return;
     closeSheet();
-    exportCsv(from, to);
+    exportXlsx(from, to);
   },
   wipe: async () => {
     if (!(await askConfirm('Alle økter og egne øvelser blir slettet. Dette kan ikke angres.\nTa gjerne en eksport først.', { title: 'Slette alle data?', ok: 'Fortsett', danger: true }))) return;

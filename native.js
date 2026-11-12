@@ -74,7 +74,13 @@
   syncStatusBar();
   new MutationObserver(syncStatusBar).observe(document.documentElement, { attributes: true, attributeFilter: ['data-mode'] });
 
-  window.nativeApp = { afterSave: write, shareFile: shareFile, keyboardOpen: false };
+  window.nativeApp = { afterSave: write, shareFile: shareFile, keyboardOpen: false, version: null };
+
+  // Appens eget versjonsnummer (fra App Store-bygget), vises under Mer og i e-post til kundestøtte
+  var AppInfo = plugin('App');
+  if (AppInfo && AppInfo.getInfo) {
+    AppInfo.getInfo().then(function (info) { window.nativeApp.version = info.version + ' (' + info.build + ')'; }).catch(function () {});
+  }
 
   // Appen krymper over tastaturet (resize: native), så siden ikke kan skyves opp.
   // Da merker ikke visualViewport tastaturet, så menyen skjules ut fra tastaturets egne hendelser.
