@@ -126,7 +126,7 @@ const fromUnit = (v, unit) => (v == null ? null : unit === 'm' ? v / 1000 : v);
 const paceSec = (kmh) => (kmh ? 1800 / kmh : null);
 function fmtSpeed(kmh, cfg) {
   if (!kmh) return '–';
-  return cfg.speed === 'pace500' ? `${fmtDuration(1800 / kmh)} /500 m` : `${fmtNum(kmh, 1)} km/t`;
+  return cfg.speed === 'pace500' ? `${fmtDuration(1800 / kmh)} min/500 m` : `${fmtNum(kmh, 1)} km/t`;
 }
 
 const FEELINGS = [
@@ -181,7 +181,7 @@ function fmtDuration(sec) {
 function fmtPace(kmh) {
   if (!kmh) return null;
   const secPerKm = 3600 / kmh;
-  return fmtDuration(secPerKm) + ' /km';
+  return fmtDuration(secPerKm) + ' min/km';
 }
 function weekStart(d) {
   const x = new Date(d); x.setHours(12, 0, 0, 0);
@@ -346,6 +346,17 @@ function resolvedSegments(en) {
 function segTotals(en) {
   return sumParts(resolvedSegments(en));
 }
+// Oppvarming og nedtrapping (bare intervall/terskel). Telles i treningsmengde, ikke i tempo eller rekorder.
+function warmTotals(en) {
+  if (!isIntervalType(en.purpose)) return null;
+  const parts = [en.warmup, en.cooldown].filter((p) => p && (p.timeSec > 0 || p.distanceKm > 0));
+  if (!parts.length) return null;
+  return { sec: parts.reduce((a, p) => a + (p.timeSec || 0), 0), km: parts.reduce((a, p) => a + (p.distanceKm || 0), 0) };
+}
+const warmText = (p, cfg, unit) => {
+  const t = p.timeSec ? fmtDuration(p.timeSec) : '', d = p.distanceKm && cfg.distance ? fmtDist(p.distanceKm, unit) : '';
+  return t && d ? `${t} (${d})` : t || d;
+};
 // Intervaller (terskel / intervall): arbeidstid, distanse og fart i dragene + pauser
 function intervalTotals(en) {
   if (!isIntervalType(en.purpose)) return null;
@@ -380,6 +391,8 @@ function cardioStats(entry) {
     timeMin: t ? t / 60 : null, timeSec: t, distanceKm: dist, speed, pace500: speed ? 1800 / speed : null, paceKm: speed ? 3600 / speed : null,
     maxSpeed: agg && agg.count > 1 ? agg.maxSpeed : null,
     avgHr: entry.avgHr || null, maxHr: entry.maxHr || null, kcal: entry.kcal || null,
+    // Tempo ved puls: meter per hjerteslag (ikke for intervaller, der pausene trekker ned)
+    hrEff: entry.avgHr && dist && t && !iv ? (dist * 1000) / ((t / 60) * entry.avgHr) : null,
     ...Object.fromEntries(RATE_FIELDS.map((k) => [k, rate(k)])),
     floors: entry.floors || null, elevation: entry.elevation || null,
     intervals: iv ? iv.count : null,
@@ -420,13 +433,14 @@ function cardioMetrics(ex) {
   if (cfg.speed === 'kmh') {
     m.push({ k: 'speed', label: 'Snittfart', unit: 'km/t', d: 1 });
     m.push({ k: 'maxSpeed', label: 'Toppfart', unit: 'km/t', d: 1, hint: 'Raskeste segment / drag' });
-    if (cfg.pace) m.splice(m.length - 1, 0, { k: 'paceKm', label: 'Snittempo', unit: '/km', fmt: fmtDuration, lower: true, hint: 'Minutter per kilometer – lavere er bedre' });
+    if (cfg.pace) m.splice(m.length - 1, 0, { k: 'paceKm', label: 'Snittempo', unit: 'min/km', fmt: fmtDuration, lower: true, hint: 'Minutter per kilometer – lavere er bedre' });
   } else if (cfg.speed === 'pace500') {
-    m.push({ k: 'pace500', label: 'Snittempo', unit: '/500 m', fmt: fmtDuration, lower: true, hint: 'Lavere er bedre' });
+    m.push({ k: 'pace500', label: 'Snittempo', unit: 'min/500 m', fmt: fmtDuration, lower: true, hint: 'Lavere er bedre' });
   }
   for (const f of cfg.fields) m.push({ k: f, label: CARDIO_FIELDS[f].name, unit: CARDIO_FIELDS[f].unit, d: CARDIO_FIELDS[f].d });
   m.push({ k: 'avgHr', label: 'Snittpuls', unit: 'slag/min', d: 0 });
   m.push({ k: 'maxHr', label: 'Makspuls', unit: 'slag/min', d: 0 });
+  if (cfg.distance) m.push({ k: 'hrEff', label: 'Tempo ved puls', unit: 'm per slag', d: 2, hint: 'Meter per hjerteslag – høyere betyr bedre form. Bare økter med snittpuls' });
   return m;
 }
 const fmtMetric = (metric, raw) => (raw == null ? '–' : metric.fmt ? metric.fmt(raw) : fmtNum(raw * (metric.scale || 1), metric.d));
@@ -490,6 +504,8 @@ function cardioSummary(en, withPurpose = true) {
     parts.push(ivs);
     if (st.speed && cfg.speed !== 'none') parts.push(`snitt ${fmtSpeed(st.speed, cfg)}${cfg.pace ? ` (${fmtPace(st.speed)})` : ''} i dragene`);
     if (st.distanceKm && cfg.distance) parts.push(fmtDist(st.distanceKm, unit));
+    if (en.warmup && warmTotals(en)) parts.push(`oppvarming ${warmText(en.warmup, cfg, unit)}`);
+    if (en.cooldown && warmTotals(en)) parts.push(`nedtrapping ${warmText(en.cooldown, cfg, unit)}`);
   } else {
     if (st.timeSec) parts.push(fmtDuration(st.timeSec));
     if (st.distanceKm && cfg.distance) parts.push(fmtDist(st.distanceKm, unit));
@@ -1331,11 +1347,23 @@ function enduranceForm(en, i, cfg, unit, last) {
     <p class="derived" data-derived="${i}">${derivedText(en)}</p>`;
 }
 
+// Oppvarming og nedtrapping (valgfritt): telles ikke i tempo, rekorder eller snitt for dragene
+function warmPart(en, i, key, title, cfg, unit, last) {
+  const p = en[key] || {}, l = last?.en[key] || {};
+  const a = `data-e="${i}" data-wu="${key}"`;
+  return `<div class="part-card warm-card">
+      <div class="part-head"><b>${title}</b><span class="part-hint" data-hint="${i}-${key}">${p.timeSec || p.distanceKm ? partHint(p.timeSec, p.distanceKm, null, cfg, unit) : 'Valgfritt'}</span></div>
+      <div class="part-grid">
+        <div><label class="field">Tid (min:sek)</label>${timePair('t', p.timeSec, a, l.timeSec)}</div>
+        ${cfg.distance ? distField(a, p.distanceKm, l.distanceKm, unit) : ''}
+      </div></div>`;
+}
 function intervalForm(en, i, cfg, unit, last) {
   const ivs = en.intervals || [];
   const lastIvs = last?.en.intervals || [];
   const rates = cfg.fields.filter((f) => CARDIO_FIELDS[f].rate);
-  return `<div class="iv-stepper">
+  return `${warmPart(en, i, 'warmup', 'Oppvarming', cfg, unit, last)}
+    <div class="iv-stepper">
       <span>Antall intervaller</span>
       <div class="stepper">
         <button type="button" data-act="iv-count" data-e="${i}" data-d="-1" aria-label="Ett intervall færre" ${ivs.length ? '' : 'disabled'}>−</button>
@@ -1361,6 +1389,7 @@ function intervalForm(en, i, cfg, unit, last) {
     }).join('')}
     ${ivs.length > 1 ? `<button class="btn ghost sm" style="margin-top:10px" data-act="iv-copy" data-e="${i}">Kopier drag 1 til alle</button>` : ''}
     ${!ivs.length ? `<button class="btn secondary block" style="margin-top:10px" data-act="iv-count" data-e="${i}" data-d="1">+ Legg til første intervall</button>` : ''}
+    ${warmPart(en, i, 'cooldown', 'Nedtrapping', cfg, unit, last)}
     <div class="cardio-grid" style="margin-top:14px">
       ${cfg.fields.filter((f) => !CARDIO_FIELDS[f].rate).map((f) => extraField(`data-e="${i}"`, f, en[f], last?.en[f])).join('')}
       <label class="field">Snittpuls<input inputmode="numeric" data-e="${i}" data-f="avgHr" value="${inputVal(en.avgHr)}" placeholder="${ph(last ? cardioStats(last.en)?.avgHr : null, 0)}"></label>
@@ -1462,9 +1491,14 @@ function cleanEntry(orig) {
     // Intervalløkt: totalverdier og segmenter hører til utholdenhetsskjemaet
     en.intervals = (en.intervals || []).filter((x) => x.timeSec > 0 || x.distanceKm > 0 || x.speedKmh > 0);
     Object.assign(en, { segments: [], timeSec: null, distanceKm: null, speedKmh: null, incline: null, level: null });
+    for (const k of ['warmup', 'cooldown']) {
+      const p = en[k];
+      en[k] = p && (p.timeSec > 0 || p.distanceKm > 0) ? { timeSec: p.timeSec || null, distanceKm: p.distanceKm || null } : null;
+    }
   } else {
     en.segments = (en.segments || []).filter((s) => s.timeSec > 0 || s.distanceKm > 0 || s.speedKmh > 0);
     en.intervals = [];
+    en.warmup = en.cooldown = null;
   }
   return cardioStats(en) ? en : null;
 }
@@ -1499,23 +1533,6 @@ async function saveWorkout() {
     if (!ok) {
       if (emptyIdx.length) highlightEntries(emptyIdx);
       return;
-    }
-  }
-
-  // Finn nye rekorder før lagring
-  const records = [];
-  for (const en of entries) {
-    const ex = exById(en.exerciseId);
-    const hist = historyFor(ex.id, d.id);
-    if (!hist.length) continue;
-    const st = entryStats(en);
-    if (!st) continue;
-    const keys = ex.kind === 'cardio'
-      ? [['distanceKm', 'distanse'], ['speed', 'fart'], ['maxSpeed', 'toppfart']].filter(([k]) => (k === 'distanceKm' ? exCfg(ex).distance : exCfg(ex).speed !== 'none'))
-      : [['tested', '1RM'], ['repWeight', 'vekt']];
-    for (const [k, l] of keys) {
-      const b = bestOf(hist, k);
-      if (st[k] != null && b && st[k] > b.v) { records.push(`${ex.name} (${l})`); break; }
     }
   }
 
@@ -1559,6 +1576,13 @@ async function saveWorkout() {
   location.hash = `#/okt/${encodeURIComponent(workout.id)}`;
   const folderName = folderById(workout.folderId)?.name;
   const saved = folderName ? `Økta er lagret i «${folderName}» 👍` : 'Økta er lagret 👍';
+  // Nye rekorder i denne økta, samlet per øvelse: «Tredemølle (5 km, lengste distanse)»
+  const byEx = new Map();
+  for (const r of recordEvents().filter((e) => e.wid === workout.id)) {
+    const ex = exById(r.exId);
+    byEx.set(ex.name, [...(byEx.get(ex.name) || []), recordMeta(r.k, ex).label.toLowerCase()]);
+  }
+  const records = [...byEx].map(([name, labels]) => `${name} (${labels.slice(0, 2).join(', ')}${labels.length > 2 ? ' …' : ''})`);
   toast(records.length ? `🏆 Ny rekord: ${records.join(', ')}!` : saved, records.length ? 4000 : 2400);
 }
 
@@ -1801,15 +1825,16 @@ function renderWorkoutDetail(id) {
       const iv = intervalTotals(en);
       const segs = resolvedSegments(en);
       const rates = cfg.fields.filter((f) => CARDIO_FIELDS[f].rate);
-      const speedHead = cfg.speed === 'pace500' ? '/500 m' : 'km/t';
+      const speedHead = cfg.speed === 'pace500' ? 'min/500 m' : 'km/t';
       const cols = (p, raw) => `${cfg.distance ? `<td class="num">${p.distanceKm ? fmtDist(p.distanceKm, unit) : '–'}</td>` : ''}${cfg.speed !== 'none' ? `<td class="num">${p.speed ? (cfg.speed === 'pace500' ? fmtDuration(paceSec(p.speed)) : fmtNum(p.speed, 1)) : '–'}${cfg.pace && p.speed ? `<div class="sub">${fmtPace(p.speed)}</div>` : ''}</td>` : ''}${rates.map((f) => `<td class="num">${fmtNum(raw[f], CARDIO_FIELDS[f].d)}</td>`).join('')}`;
       const heads = `${cfg.distance ? '<th class="num">Distanse</th>' : ''}${cfg.speed !== 'none' ? `<th class="num">${speedHead}</th>` : ''}${rates.map((f) => `<th class="num">${esc(CARDIO_FIELDS[f].unit)}</th>`).join('')}`;
       const tempoChart = canChartTempo(tempoParts(en), cfg) ? `<div class="chart-wrap" data-seg-chart="${w.entries.indexOf(en)}"></div>` : '';
       if (iv) {
-        html += `<div class="subhead">Intervaller</div>${tempoChart}
+        const warmLine = (key, title) => (en[key] && warmTotals(en) ? `<p class="small muted warm-line"><b>${title}</b> ${esc(warmText(en[key], cfg, unit))}</p>` : '');
+        html += `<div class="subhead">Intervaller</div>${tempoChart}${warmLine('warmup', 'Oppvarming')}
           <div class="table-scroll"><table class="data" style="margin-top:6px"><thead><tr><th>#</th><th class="num">Tid</th>${heads}<th class="num">Pause</th></tr></thead><tbody>
           ${en.intervals.map((x, j) => { const p = iv.parts[j]; return `<tr><td>${j + 1}</td><td class="num">${p.timeSec ? fmtDuration(p.timeSec) : '–'}</td>${cols(p, x)}<td class="num">${j < en.intervals.length - 1 && x.restSec ? fmtDuration(x.restSec) : '–'}</td></tr>`; }).join('')}
-          </tbody></table></div>`;
+          </tbody></table></div>${warmLine('cooldown', 'Nedtrapping')}`;
       } else if (segs.length) {
         let acc = 0;
         html += `<div class="subhead">${cfg.speed === 'none' ? 'Segmenter' : 'Fartsprofil'}</div>
@@ -1875,14 +1900,14 @@ function tempoParts(en) {
 }
 const canChartTempo = (parts, cfg) => cfg.speed !== 'none' && parts.length > 1 && parts.every((p) => p.timeSec && p.speed);
 
-// Trappediagram: tempo (min/km eller /500 m) eller fart (km/t) over tid. Raskere er alltid høyere opp.
+// Trappediagram: tempo (min/km eller min/500 m) eller fart (km/t) over tid
 function drawSegChart(el, parts, rates, cfg) {
   const W = Math.max(260, el.clientWidth), H = 150, m = { t: 10, r: 8, b: 22, l: 40 };
   const iw = W - m.l - m.r, ih = H - m.t - m.b;
   const pace = cfg.speed === 'pace500' || cfg.pace;
   const val = (kmh) => (cfg.speed === 'pace500' ? 1800 / kmh : cfg.pace ? 3600 / kmh : kmh);
   const fmt = (v) => (pace ? fmtDuration(v) : fmtNum(v, 1));
-  const unit = cfg.speed === 'pace500' ? '/500 m' : cfg.pace ? '/km' : 'km/t';
+  const unit = cfg.speed === 'pace500' ? 'min/500 m' : cfg.pace ? 'min/km' : 'km/t';
   const vals = parts.map((p) => val(p.speed));
   const lo = Math.min(...vals), hi = Math.max(...vals), pad = (hi - lo) * 0.15 || hi * 0.05;
   const ticks = niceTicks(Math.max(0, lo - pad), hi + pad, 3);
@@ -1890,8 +1915,8 @@ function drawSegChart(el, parts, rates, cfg) {
   const last = parts[parts.length - 1];
   const total = last.start + last.timeSec;
   const X = (sec) => m.l + (sec / total) * iw;
-  // Tempo: lavere tall er raskere og tegnes høyere opp
-  const Y = (v) => (pace ? m.t + ((v - y0) / (y1 - y0 || 1)) * ih : m.t + ih - ((v - y0) / (y1 - y0 || 1)) * ih);
+  // Vanlig akse: lave tall nederst, også for tempo
+  const Y = (v) => m.t + ih - ((v - y0) / (y1 - y0 || 1)) * ih;
   const base = m.t + ih;
   let line = '', area = '';
   const items = [];
@@ -2217,7 +2242,7 @@ function openMoveSheet(workoutId) {
 /* =========================================================
    Statistikk
    ========================================================= */
-const statsUI = { metric: {}, purpose: {}, weight: {}, period: 'month', dist: 'strength', progQ: '' };
+const statsUI = { metric: {}, purpose: {}, weight: {}, setup: {}, period: 'month', dist: 'strength', progQ: '' };
 
 /* =========================================================
    Statistikk – oversikt i kategorier
@@ -2239,34 +2264,249 @@ const workoutsBetween = (from, to) => db.workouts.filter((w) => (!from || w.date
 
 // Alle rekorder, i den rekkefølgen de ble satt. En øvelse i en økt teller én gang,
 // og bare når en tidligere beste verdi slås (første gang teller ikke).
+/* ---------- Rekorder ----------
+   Styrke: tyngste vekt, 1RM, bæring, tid. Kondisjon:
+   - raskeste tid på faste distanser (eksakt: en hel økt, et segment, flere segmenter på rad eller et drag
+     som er distansen, innenfor 1 %), og estimert tid fra raskeste del av en lengre strekning
+   - per type økt: utholdenhet (snittempo), terskel (snittempo og tid i drag), intervall (snittempo per oppsett)
+   - lengste distanse uansett type, og høyeste snittwatt
+   Rolige økter gir ingen tempo-rekorder. Rekordmeldinger og rapporter bruker bare eksakte rekorder. */
+function recordDistances(ex) {
+  const cfg = exCfg(ex);
+  if (!cfg.distance || cfg.speed === 'none') return [];
+  if (cfg.speed === 'pace500') return [0.5, 1, 2, 5];
+  if (cfg.pace) return [1, 3, 5, 10, 21.0975, 42.195];
+  return [5, 10, 20, 30, 40, 50, 75, 100];
+}
+function distLabel(km, ex) {
+  if (km === 21.0975) return 'Halvmaraton';
+  if (km === 42.195) return 'Maraton';
+  return exCfg(ex).unit === 'm' || km < 1 ? `${fmtNum(km * 1000, 0)} m` : `${fmtNum(km, km % 1 ? 1 : 0)} km`;
+}
+// Fart i det formatet øvelsen bruker: min/km (løping), min/500 m (roing) eller km/t
+function speedText(kmh, ex) {
+  const cfg = exCfg(ex);
+  if (cfg.speed === 'pace500') return `${fmtDuration(1800 / kmh)} min/500 m`;
+  return cfg.pace ? fmtPace(kmh) : `${fmtNum(kmh, 1)} km/t`;
+}
+// Sammenhengende strekninger: segmentene henger sammen, hvert drag står for seg (pausene skiller dem)
+function cardioChains(en) {
+  const iv = intervalTotals(en);
+  if (iv) return iv.parts.filter((p) => p.timeSec > 0 && p.distanceKm > 0).map((p) => [p]);
+  const segs = resolvedSegments(en).filter((p) => p.timeSec > 0 && p.distanceKm > 0);
+  if (segs.length) return [segs];
+  const st = cardioStats(en);
+  return st?.timeSec && st?.distanceKm ? [[{ timeSec: st.timeSec, distanceKm: st.distanceKm }]] : [];
+}
+// Beste tid over distansen D i en strekning: eksakt (hele deler som utgjør D) og estimert (raskeste vindu på D)
+function bestOverDistance(chain, D) {
+  let exact = null, est = null;
+  for (let i = 0; i < chain.length; i++) {
+    let d = 0, t = 0;
+    for (let j = i; j < chain.length && d <= D * 1.01; j++) {
+      d += chain[j].distanceKm; t += chain[j].timeSec;
+      if (d >= D && d <= D * 1.01) { const v = (t * D) / d; if (exact == null || v < exact) exact = v; }
+    }
+  }
+  const total = chain.reduce((a, p) => a + p.distanceKm, 0);
+  if (total >= D) {
+    // Med jevnt tempo i hver del ligger det raskeste vinduet med én ende i et delskille
+    const cover = (start, step) => {
+      let left = D, t = 0;
+      for (let j = start; j >= 0 && j < chain.length && left > 1e-9; j += step) {
+        const p = chain[j], take = Math.min(left, p.distanceKm);
+        t += (p.timeSec * take) / p.distanceKm; left -= take;
+      }
+      return left > 1e-9 ? null : t;
+    };
+    for (let i = 0; i < chain.length; i++) for (const v of [cover(i, 1), cover(i, -1)]) if (v != null && (est == null || v < est)) est = v;
+  }
+  return { exact, est };
+}
+// Intervalloppsett, så bare like økter sammenlignes: «5 × 1 km», «10 × 1:00» eller «5 drag» når dragene er ulike
+function intervalSetup(en) {
+  const ivs = (en.intervals || []).filter((x) => x.timeSec > 0 || x.distanceKm > 0);
+  if (!isIntervalType(en.purpose) || !ivs.length) return null;
+  const same = (k) => ivs.every((x) => x[k] > 0 && Math.abs(x[k] - ivs[0][k]) <= ivs[0][k] * 0.01);
+  const ex = exById(en.exerciseId);
+  if (same('distanceKm')) return `${ivs.length} × ${distLabel(ivs[0].distanceKm, ex)}`;
+  if (same('timeSec')) return `${ivs.length} × ${fmtDuration(ivs[0].timeSec)}`;
+  // Ulike drag (pyramide o.l.): beskriv dragene, f.eks. «1-2-3-2-1 min» eller «400-800-1200 m»
+  if (ivs.length > 8) return `${ivs.length} drag`;
+  if (ivs.every((x) => x.distanceKm > 0)) {
+    const km = ivs.map((x) => x.distanceKm);
+    return Math.max(...km) < 2 ? `${km.map((d) => Math.round(d * 1000)).join('-')} m` : `${km.map((d) => fmtNum(d, 1)).join('-')} km`;
+  }
+  if (ivs.every((x) => x.timeSec > 0)) {
+    const sec = ivs.map((x) => x.timeSec);
+    return sec.every((s) => s % 60 === 0) ? `${sec.map((s) => s / 60).join('-')} min` : sec.map((s) => fmtDuration(s)).join('-');
+  }
+  return `${ivs.length} drag`;
+}
+
+// Terskel grupperes etter snittlengden på dragene, så omtrent like økter sammenlignes
+const THRESHOLD_GROUPS = { short: 'Korte drag (under 5 min)', mid: 'Mellomlange drag (5–10 min)', long: 'Lange drag (over 10 min)' };
+function thresholdGroup(iv) {
+  const avg = iv.workSec / iv.parts.length;
+  return avg < 300 ? 'short' : avg <= 600 ? 'mid' : 'long';
+}
+// Alle rekordverdier en kondisjonsøkt gir: [{ k, v, lower, est }] (est = estimert, teller ikke som rekord)
+function cardioRecordValues(en, ex = exById(en.exerciseId)) {
+  const st = cardioStats(en);
+  if (!st) return [];
+  const out = [], p = en.purpose || 'endurance', iv = intervalTotals(en);
+  if (st.distanceKm) out.push({ k: 'distanceKm', v: st.distanceKm });
+  const chains = cardioChains(en);
+  for (const D of recordDistances(ex)) {
+    let exact = null, est = null;
+    for (const c of chains) {
+      const r = bestOverDistance(c, D);
+      if (r.exact != null && (exact == null || r.exact < exact)) exact = r.exact;
+      if (r.est != null && (est == null || r.est < est)) est = r.est;
+    }
+    if (exact != null) out.push({ k: `d:${D}`, v: exact, lower: true });
+    else if (est != null) out.push({ k: `d:${D}`, v: est, lower: true, est: true });
+  }
+  if (exCfg(ex).speed !== 'none' && st.speed) {
+    if (p === 'endurance' && !iv) out.push({ k: 'endurance:speed', v: st.speed });
+    if (p === 'threshold' && iv) out.push({ k: `threshold:${thresholdGroup(iv)}`, v: iv.speed });
+    if (p === 'interval' && iv) out.push({ k: `interval:${intervalSetup(en)}`, v: iv.speed });
+  }
+  if (p === 'threshold' && iv?.workSec) out.push({ k: 'threshold:work', v: iv.workSec });
+  if (exCfg(ex).fields.includes('watt') && st.watt) out.push({ k: 'watt', v: st.watt });
+  return out;
+}
+function recordValues(en) {
+  const ex = exById(en.exerciseId);
+  if (ex.kind === 'cardio') return cardioRecordValues(en, ex);
+  const st = strengthStats(en);
+  if (!st) return [];
+  const keys = en.mode === 'max' ? ['tested'] : { time: ['maxSec'], distance: ['carryWeight', 'maxMeters'] }[exMeasure(ex)] || ['repWeight'];
+  return keys.filter((k) => st[k] != null).map((k) => ({ k, v: st[k] }));
+}
+
+// Navn og visning for en rekord
+function recordMeta(k, ex) {
+  const sp = exCfg(ex).pace || exCfg(ex).speed === 'pace500' ? 'snittempo' : 'snittfart';
+  const Sp = sp.replace(/^./, (c) => c.toUpperCase());
+  const kg = (v) => `${fmtNum(v, 2)} kg`;
+  const fixed = {
+    repWeight: ['Tyngste vekt', kg], tested: ['1RM', kg], carryWeight: ['Tyngste bæring', kg],
+    maxMeters: ['Lengste distanse', (v) => `${fmtNum(v, 0)} m`], maxSec: ['Lengste tid', (v) => fmtDuration(v)],
+    distanceKm: ['Lengste distanse', (v) => fmtDist(v, exCfg(ex).unit)],
+    'endurance:speed': [`Beste ${sp}, utholdenhet`, (v) => speedText(v, ex)],
+    'threshold:short': [`${Sp} i drag, terskel, korte drag`, (v) => speedText(v, ex)],
+    'threshold:mid': [`${Sp} i drag, terskel, mellomlange drag`, (v) => speedText(v, ex)],
+    'threshold:long': [`${Sp} i drag, terskel, lange drag`, (v) => speedText(v, ex)],
+    'threshold:work': ['Lengste tid i drag, terskel', (v) => fmtDuration(v)],
+    watt: ['Høyeste snittwatt', (v) => `${fmtNum(v, 0)} W`],
+  };
+  if (fixed[k]) return { label: fixed[k][0], fmt: fixed[k][1], lower: false };
+  if (k.startsWith('d:')) return { label: distLabel(+k.slice(2), ex), fmt: (v) => fmtDuration(v), lower: true };
+  if (k.startsWith('interval:')) return { label: `${Sp} i drag, ${k.slice(9)}`, fmt: (v) => speedText(v, ex), lower: false };
+  return { label: k, fmt: (v) => fmtNum(v, 1), lower: false };
+}
+// Forbedringen som tekst, f.eks. «+2,5 kg», «−0:12» eller «−0:05 min/km»
+function recordDiff(k, ex, v, prev) {
+  const m = recordMeta(k, ex);
+  if (m.lower) return `−${fmtDuration(prev - v)}`;
+  const isSpeed = k.endsWith(':speed') || k.startsWith('interval:') || /^threshold:(short|mid|long)$/.test(k);
+  if (isSpeed) {
+    const cfg = exCfg(ex);
+    if (cfg.speed === 'pace500') return `−${fmtDuration(1800 / prev - 1800 / v)} min/500 m`;
+    if (cfg.pace) return `−${fmtDuration(3600 / prev - 3600 / v)} min/km`;
+    return `+${fmtNum(v - prev, 1)} km/t`;
+  }
+  if (k === 'maxSec' || k === 'threshold:work') return `+${fmtDuration(v - prev)}`;
+  return `+${m.fmt(v - prev)}`;
+}
+
+// Alle rekordene som er satt, i rekkefølge. Bare eksakte verdier teller.
 function recordEvents() {
   const best = {}, events = [];
-  const keysFor = (ex, en) => {
-    if (ex.kind === 'cardio') {
-      const cfg = exCfg(ex);
-      return [cfg.distance && 'distanceKm', cfg.speed !== 'none' && 'speed'].filter(Boolean);
-    }
-    if (en.mode === 'max') return ['tested'];
-    return { time: ['maxSec'], distance: ['carryWeight', 'maxMeters'] }[exMeasure(ex)] || ['repWeight'];
-  };
   const ordered = [...db.workouts].sort((a, b) => a.date.localeCompare(b.date) || (a.createdAt || 0) - (b.createdAt || 0));
   for (const w of ordered) {
     for (const en of w.entries) {
-      const ex = exById(en.exerciseId);
-      const st = entryStats(en);
-      if (!st) continue;
-      let beat = null;
-      for (const k of keysFor(ex, en)) {
-        const v = st[k];
-        if (v == null) continue;
-        const id = `${ex.id}|${k}`;
-        if (best[id] != null && v > best[id] && !beat) beat = { k, v, prev: best[id] };
-        if (best[id] == null || v > best[id]) best[id] = v;
+      for (const r of recordValues(en)) {
+        if (r.est) continue;
+        const id = `${en.exerciseId}|${r.k}`, prev = best[id];
+        const better = prev == null || (r.lower ? r.v < prev : r.v > prev);
+        if (prev != null && better) events.push({ date: w.date, wid: w.id, exId: en.exerciseId, k: r.k, v: r.v, prev });
+        if (better) best[id] = r.v;
       }
-      if (beat) events.push({ date: w.date, exId: ex.id, ...beat });
     }
   }
   return events;
+}
+
+// Rekorder på Fremgang-siden: tid per distanse (eksakt og estimert), deretter de andre rekordene
+function cardioRecordsCard(ex) {
+  const board = cardioRecordBoard(ex);
+  const when = (x) => `<a href="#/okt/${encodeURIComponent(x.w.id)}">${esc(fmtDate(x.w.date, { day: 'numeric', month: 'short', year: 'numeric' }))}</a>`;
+  const dists = recordDistances(ex).filter((D) => board[`d:${D}`]);
+  const ORDER = ['distanceKm', 'endurance:speed', 'threshold:short', 'threshold:mid', 'threshold:long', 'threshold:work'];
+  const rank = (k) => (ORDER.includes(k) ? ORDER.indexOf(k) : k.startsWith('interval:') ? 10 : 20);
+  const others = Object.keys(board).filter((k) => !k.startsWith('d:') && board[k].exact).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, 'nb'));
+  if (!dists.length && !others.length) return '';
+  let html = `<h2 class="section-title">Rekorder</h2><section class="card">`;
+  if (dists.length) {
+    let anyEst = false;
+    html += `<table class="data rec-table"><thead><tr><th>Distanse</th><th class="num">Rekord</th><th class="num">Estimert</th></tr></thead><tbody>
+      ${dists.map((D) => {
+        const s = board[`d:${D}`];
+        // Estimatet vises bare når det er bedre enn den eksakte rekorden
+        const est = s.est && (!s.exact || s.est.v < s.exact.v - 0.5) ? s.est : null;
+        if (est) anyEst = true;
+        return `<tr><td>${esc(distLabel(D, ex))}</td>
+          <td class="num">${s.exact ? `<b>${fmtDuration(s.exact.v)}</b><div class="sub">${when(s.exact)}</div>` : '–'}</td>
+          <td class="num">${est ? `<span class="rec-est">≈ ${fmtDuration(est.v)}</span><div class="sub">${when(est)}</div>` : ''}</td></tr>`;
+      }).join('')}
+      </tbody></table>
+      ${anyEst ? '<p class="small muted rec-note">≈ er beregnet fra den raskeste delen av en lengre økt. Bare eksakte tider teller som rekord.</p>' : ''}`;
+  }
+  // Gruppert per type økt, med korte navn inne i hver gruppe
+  const sp = exCfg(ex).pace || exCfg(ex).speed === 'pace500' ? 'Snittempo' : 'Snittfart';
+  const GROUPS = [
+    ['Generelt', (k) => k === 'distanceKm' || k === 'watt', (k) => recordMeta(k, ex).label],
+    ['Utholdenhet', (k) => k === 'endurance:speed', () => `Beste ${sp.toLowerCase()}`],
+    ['Terskel', (k) => k.startsWith('threshold:'), (k) => (k === 'threshold:work' ? 'Lengste tid i drag' : THRESHOLD_GROUPS[k.slice(10)])],
+    ['Intervall', (k) => k.startsWith('interval:'), (k) => k.slice(9)],
+  ];
+  for (const [title, match, name] of GROUPS) {
+    const keys = others.filter(match);
+    if (!keys.length) continue;
+    html += `<h3 class="rec-group">${title}${title === 'Intervall' || title === 'Terskel' ? `<span>${sp.toLowerCase()} i dragene</span>` : ''}</h3>
+      <ul class="report-recs rec-list">${keys.map((k) => {
+        const x = board[k].exact;
+        return `<li><span>${esc(name(k))}<small>${when(x)}</small></span><b>${esc(recordMeta(k, ex).fmt(x.v))}</b></li>`;
+      }).join('')}</ul>`;
+  }
+  return html + '</section>';
+}
+
+// Rekordtavla for en kondisjonsøvelse: beste eksakte og estimerte verdi per rekord, med økta den kom fra
+function cardioRecordBoard(ex) {
+  const board = {};
+  for (const h of historyFor(ex.id)) {
+    for (const r of cardioRecordValues(h.en, ex)) {
+      const slot = (board[r.k] ||= { exact: null, est: null, lower: !!r.lower });
+      const key = r.est ? 'est' : 'exact';
+      const cur = slot[key];
+      if (!cur || (r.lower ? r.v < cur.v : r.v > cur.v)) slot[key] = { v: r.v, w: h.w, en: h.en };
+    }
+  }
+  // Estimater teller også fra økter med eksakt treff (raskeste del av en lengre strekning)
+  for (const h of historyFor(ex.id)) {
+    for (const D of recordDistances(ex)) {
+      for (const c of cardioChains(h.en)) {
+        const est = bestOverDistance(c, D).est;
+        if (est == null) continue;
+        const slot = (board[`d:${D}`] ||= { exact: null, est: null, lower: true });
+        if (!slot.est || est < slot.est.v) slot.est = { v: est, w: h.w, en: h.en };
+      }
+    }
+  }
+  return board;
 }
 
 /* ---------- Muskelgrupper ---------- */
@@ -2365,6 +2605,8 @@ function distribution(ws) {
           d.sec += sec;
         }
         purposes[p].km += st?.distanceKm || 0;
+        const wt = warmTotals(en);
+        if (wt) { const x = (purposes.warm ||= { n: 0, sec: 0, km: 0 }); x.n++; x.sec += wt.sec; x.km += wt.km; }
         continue;
       }
       const sets = workSets(en);
@@ -2480,10 +2722,6 @@ function formCard(ws, prevWs, p) {
 }
 
 // Treningsrapport: oppsummering av én kalendermåned, med sammenligning mot måneden før
-const RECORD_FMT = {
-  repWeight: (v) => `${fmtNum(v, 2)} kg`, tested: (v) => `${fmtNum(v, 2)} kg`, carryWeight: (v) => `${fmtNum(v, 2)} kg`,
-  maxMeters: (v) => `${fmtNum(v, 0)} m`, maxSec: (v) => `${fmtNum(v, 0)} sek`, distanceKm: (v) => `${fmtNum(v, 2)} km`, speed: (v) => `${fmtNum(v, 1)} km/t`,
-};
 const fmtVolume = (kg) => `${fmtNum(kg, 0)} kg`;
 const ymOf = (d) => isoDay(d).slice(0, 7);
 function shiftYm(ym, n) {
@@ -2502,7 +2740,11 @@ function monthAmount(ws) {
     for (const en of w.entries) {
       const st = entryStats(en);
       if (!st) continue;
-      if (exById(en.exerciseId).kind === 'cardio') { a.km += st.distanceKm || 0; cardioSec += st.timeSec || 0; }
+      if (exById(en.exerciseId).kind === 'cardio') {
+        const wt = warmTotals(en);
+        a.km += (st.distanceKm || 0) + (wt?.km || 0);
+        cardioSec += (st.timeSec || 0) + (wt?.sec || 0);
+      }
       else { a.sets += workSets(en); a.volume += st.volume || 0; }
     }
     // Rene økter teller hele varigheten; i blandede økter er resten etter kondisjonen styrke
@@ -2569,13 +2811,13 @@ function monthReport() {
 
   // 2. Treningsmengde
   const group = (title, cells) => `<div class="report-group"><h4>${title}</h4><div class="report-grid">${cells.map(([l, v]) => `<div><span>${l}</span><b>${v}</b></div>`).join('')}</div></div>`;
-  const typeName = { endurance: 'Utholdenhet', interval: 'Intervall', threshold: 'Terskel', easy: 'Rolig' };
+  const typeName = { endurance: 'Utholdenhet', interval: 'Intervall', threshold: 'Terskel', easy: 'Rolig', warm: 'Oppvarming og nedtrapping' };
   // Kondisjonstid utenfor selve øvelsene, f.eks. pauser: øktas varighet minus logget tid
   const idleOf = (a, purposes) => Math.max(0, Math.round(a.cardioMins - Object.values(purposes).reduce((s, d) => s + d.sec, 0) / 60));
   const amountTypes = `<table class="report-cmp report-types"><tbody>
     <tr class="cmp-toggle"><td colspan="3"><button type="button" class="link-btn" data-act="report-types" aria-expanded="false">Vis per type økt</button></td></tr>
     <tr class="cmp-type" hidden><th></th><th class="num">Tid</th><th class="num">Distanse</th></tr>
-    ${PURPOSES.map((x) => {
+    ${[...PURPOSES, ...(dist.purposes.warm ? [{ k: 'warm' }] : [])].map((x) => {
       const d = dist.purposes[x.k];
       return `<tr class="cmp-type" hidden><td>${typeName[x.k]}</td><td class="num">${fmtMinutes((d?.sec || 0) / 60)}</td><td class="num">${fmtNum(d?.km || 0, 1)} km</td></tr>`;
     }).join('')}
@@ -2593,8 +2835,8 @@ function monthReport() {
   }
   const recList = [...byKey.values()].sort((a, b) => b.date.localeCompare(a.date));
   const recHtml = recList.length ? `<ul class="report-recs">${recList.map((r, i) => `<li${i >= 5 ? " hidden" : ""}>
-      <span>${esc(exById(r.exId).name)}<small>${esc(shortDate(r.date))}</small></span>
-      <b>${RECORD_FMT[r.k](r.v)}<small class="${exById(r.exId).kind === 'cardio' ? 'cardio' : 'strength'}">+${RECORD_FMT[r.k](r.v - r.prev)}</small></b></li>`).join('')}</ul>
+      <span>${esc(exById(r.exId).name)}<small>${esc(recordMeta(r.k, exById(r.exId)).label)} · ${esc(shortDate(r.date))}</small></span>
+      <b>${esc(recordMeta(r.k, exById(r.exId)).fmt(r.v))}<small class="${exById(r.exId).kind === 'cardio' ? 'cardio' : 'strength'}">${esc(recordDiff(r.k, exById(r.exId), r.v, r.prev))}</small></b></li>`).join('')}</ul>
       ${recList.length > 5 ? `<button type="button" class="link-btn report-more" data-act="report-recs" data-n="${recList.length - 5}" aria-expanded="false">Vis ${recList.length - 5} til</button>` : ''}`
     : `<p class="small muted">Ingen nye rekorder i ${esc(name)}.</p>`;
 
@@ -2632,7 +2874,7 @@ function monthReport() {
     const pPurposes = distribution(pw).purposes;
     const secOf = (o, k) => (o[k]?.sec || 0) / 60;
     const typeRows = amount.cardioN || pa.cardioN ? `<tr class="cmp-toggle"><td colspan="4"><button type="button" class="link-btn" data-act="report-types" aria-expanded="false">Vis per type økt</button></td></tr>
-      ${PURPOSES.map((x) => row(typeName[x.k], secOf(dist.purposes, x.k), secOf(pPurposes, x.k), fmtMinutes, 'cardio').replace('<tr>', '<tr class="cmp-type" hidden>')).join('')}
+      ${[...PURPOSES, ...(dist.purposes.warm || pPurposes.warm ? [{ k: 'warm' }] : [])].map((x) => row(typeName[x.k], secOf(dist.purposes, x.k), secOf(pPurposes, x.k), fmtMinutes, 'cardio').replace('<tr>', '<tr class="cmp-type" hidden>')).join('')}
       ${idleOf(amount, dist.purposes) || idleOf(pa, pPurposes) ? row('Inaktiv tid', idleOf(amount, dist.purposes), idleOf(pa, pPurposes), fmtMinutes, 'cardio').replace('<tr>', '<tr class="cmp-type" hidden>') : ''}` : '';
     cmpHtml = `${running ? `<p class="small muted" style="margin-bottom:6px">Sammenlignet med de første ${plural(prevEnd, 'dagen', 'dagene')} av ${esc(prevName)}.</p>` : ''}
       <table class="report-cmp"><thead><tr><th></th><th class="num">${esc(cap(prevName).slice(0, 3))}</th><th class="num">${esc(cap(name).slice(0, 3))}</th><th class="num">Endring</th></tr></thead><tbody>
@@ -2809,6 +3051,20 @@ function renderStats(exId) {
       </div>`;
     }
     if (pf !== 'all') hist = allHist.filter((h) => h.en.purpose === pf);
+    // Intervaller og terskel: sammenlign økter med samme oppsett (f.eks. 5 × 1 km), mest brukte først
+    if (pf === 'interval' || pf === 'threshold') {
+      const counts = new Map();
+      for (const h of hist) { const s = intervalSetup(h.en); if (s) counts.set(s, (counts.get(s) || 0) + 1); }
+      const setups = [...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a));
+      if (setups.length > 1) {
+        // Standard: mest brukte oppsett hvis det er gjentatt, ellers alle
+        const sel = statsUI.setup[exId] === 'all' || counts.has(statsUI.setup[exId]) ? statsUI.setup[exId] : counts.get(setups[0]) > 1 ? setups[0] : 'all';
+        filterHtml += `<p class="chip-label">Oppsett</p><div class="chips" role="group" aria-label="Oppsett">
+          ${[['all', 'Alle'], ...setups.map((s) => [s, s])].map(([v, l]) => `<button class="chip" data-act="iv-setup" data-ex="${esc(exId)}" data-v="${esc(v)}" aria-pressed="${v === sel}">${esc(l)}</button>`).join('')}
+        </div>`;
+        if (sel !== 'all') hist = hist.filter((h) => intervalSetup(h.en) === sel);
+      }
+    }
   }
   const purposeFilter = ex.kind === 'cardio' ? statsUI.purpose[exId] || 'all' : null;
 
@@ -2835,7 +3091,7 @@ function renderStats(exId) {
 
   let metrics = (ex.kind === 'cardio' ? cardioMetrics(ex) : METRICS.strength).filter((m) => hist.some((h) => h.st[m.k] != null));
   // Utholdenhet og rolig: kun distanse og snittfart (eller snittempo) per økt
-  if (purposeFilter === 'endurance' || purposeFilter === 'easy') metrics = metrics.filter((m) => ['distanceKm', 'speed', 'paceKm', 'pace500'].includes(m.k));
+  if (purposeFilter === 'endurance' || purposeFilter === 'easy') metrics = metrics.filter((m) => ['distanceKm', 'speed', 'paceKm', 'pace500', 'hrEff'].includes(m.k));
   if (!metrics.length) { view().innerHTML = filterHtml + `<div class="empty"><p>Ingen data å vise for dette utvalget.</p></div>`; return; }
   let mk = statsUI.metric[exId];
   if (!metrics.some((m) => m.k === mk)) mk = metrics[0]?.k;
@@ -2870,6 +3126,7 @@ function renderStats(exId) {
     <div class="tile"><div class="l">Antall økter</div><div class="v">${hist.length}</div><div class="l">Første: ${esc(fmtDate(hist[0].w.date, { day: 'numeric', month: 'short', year: 'numeric' }))}</div></div>
   </div>`;
 
+  if (ex.kind === 'cardio') html += cardioRecordsCard(ex);
   html += `<h2 class="section-title">Alle registreringer</h2><section class="card"><table class="data"><thead><tr><th>Dato</th><th>Detaljer</th><th class="num">${esc(metric.label)}</th></tr></thead><tbody>
     ${[...hist].reverse().map((h) => `<tr>
       <td><a href="#/okt/${encodeURIComponent(h.w.id)}" style="color:inherit">${esc(fmtDate(h.w.date, { day: 'numeric', month: 'short' }))}</a><div class="sub">${h.w.date.slice(0, 4)}</div></td>
@@ -2909,8 +3166,8 @@ function drawLineChart(el, pts, metric) {
   // Lik avstand mellom øktene uansett hvor langt det er mellom datoene
   const last = pts.length - 1;
   const X = (i) => (last ? m.l + (i / last) * iw : m.l + iw / 2);
-  // Måltall der lavere er bedre (f.eks. min/500 m) tegnes med beste verdi øverst
-  const Y = (v) => (metric.lower ? m.t + ((v - y0) / (y1 - y0 || 1)) * ih : m.t + ih - ((v - y0) / (y1 - y0 || 1)) * ih);
+  // Vanlig akse: lave tall nederst, også for tempo (der lavere er bedre)
+  const Y = (v) => m.t + ih - ((v - y0) / (y1 - y0 || 1)) * ih;
 
   // Datoer under så mange økter det er plass til, alltid med første og siste
   const labelN = Math.min(pts.length, Math.max(2, Math.floor(iw / 62)));
@@ -3104,7 +3361,7 @@ const MORE_ICONS = {
   mail: 'M4 6h16v12H4zM4 7l8 6 8-6',
   trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
 };
-const APP_VERSION = '3.2';
+const APP_VERSION = '3.3';
 // I iOS-appen vises appens eget versjonsnummer, i nettappen APP_VERSION
 const appVersion = () => window.nativeApp?.version || APP_VERSION;
 // E-post til kundestøtte med versjon og enhet fylt inn, så det er lettere å hjelpe
@@ -3257,10 +3514,7 @@ document.addEventListener('change', (ev) => {
 });
 
 // Regneark (.xlsx) til eget bruk eller til en PT: oversikt med diagrammer, økter, styrke, kondisjon og fremgang
-const RECORD_INFO = {
-  repWeight: ['Tyngste vekt', 'kg', '0.0'], tested: ['1RM', 'kg', '0.0'], carryWeight: ['Tyngste bæring', 'kg', '0.0'],
-  maxMeters: ['Lengste distanse', 'm', '0'], maxSec: ['Lengste tid', 'sek', '0'], distanceKm: ['Distanse', 'km', '0.00'], speed: ['Fart', 'km/t', '0.0'],
-};
+const iv0 = (en) => !!intervalTotals(en);
 function exportXlsx(from, to) {
   const ORANGE = 'EC6100', BLUE = '3D96EA', HEAD = '262626', ZEBRA = 'F4F4F4', MUTED = '767676';
   const inRange = (d) => (!from || d >= from) && (!to || d <= to);
@@ -3314,10 +3568,10 @@ function exportXlsx(from, to) {
   }
   const r1 = tableTop + 2, r2 = tableTop + 1 + buckets.length;
   if (recs.length) {
-    o.push(null, section('Rekorder i perioden'), head(['Dato', 'Øvelse', 'Rekord', 'Ny verdi', 'Økning', 'Enhet']));
+    o.push(null, section('Rekorder i perioden'), head(['Dato', 'Øvelse', 'Rekord', 'Ny verdi', 'Forbedring']));
     for (const r of [...recs].reverse()) {
-      const [label, unit, fmt] = RECORD_INFO[r.k];
-      o.push([D(r.date), exById(r.exId).name, label, { v: r.v, s: { fmt } }, { v: r.v - r.prev, s: { fmt: `+${fmt};-${fmt}` } }, unit]);
+      const ex = exById(r.exId), meta = recordMeta(r.k, ex);
+      o.push([D(r.date), ex.name, meta.label, { v: meta.fmt(r.v), s: { align: 'right' } }, { v: recordDiff(r.k, ex, r.v, r.prev), s: { align: 'right' } }]);
     }
   }
   const unit = byMonth ? 'måned' : 'uke';
@@ -3361,7 +3615,7 @@ function exportXlsx(from, to) {
   /* ---------- Kondisjon ---------- */
   const fieldKeys = Object.keys(CARDIO_FIELDS).filter((k) => ws.some((w) => w.entries.some((en) => exById(en.exerciseId).kind === 'cardio' &&
     [en, ...(en.segments || []), ...(en.intervals || [])].some((p) => p[k] != null))));
-  const cRows = [head(['Dato', 'Øvelse', 'Type økt', 'Del', 'Tid', 'Distanse (km)', 'Fart (km/t)', 'Tempo (/km)', 'Tempo (/500 m)', 'Pause', 'Snittpuls', 'Makspuls', ...fieldKeys.map((k) => CARDIO_FIELDS[k].label), 'Notat'])];
+  const cRows = [head(['Dato', 'Øvelse', 'Type økt', 'Del', 'Tid', 'Distanse (km)', 'Fart (km/t)', 'Tempo (min/km)', 'Tempo (min/500 m)', 'Pause', 'Snittpuls', 'Makspuls', ...fieldKeys.map((k) => CARDIO_FIELDS[k].label), 'Notat'])];
   shadeOn = false;
   for (const w of ws) {
     const cardio = w.entries.filter((e) => exById(e.exerciseId).kind === 'cardio');
@@ -3374,13 +3628,16 @@ function exportXlsx(from, to) {
         return shade([D(w.date, b), { v: ex.name, s: b }, purposeLabel(en.purpose) || null, { v: part, s: b }, T(p.timeSec, b), N(p.distanceKm, '0.00', b), N(p.speed, '0.0', b), pace(p.speed), p500(p.speed),
           T(extra.rest), N(extra.hr, '0'), N(extra.maxHr, '0'), ...fieldKeys.map((k) => N(src[k], CARDIO_FIELDS[k].d ? '0.0' : '0')), extra.note || null], shadeOn);
       };
-      cRows.push(row('Totalt', st, st, { hr: en.avgHr, maxHr: en.maxHr, note: en.note }, true));
+      const warm = (key, label) => { const p = warmTotals(en) && en[key]; if (p) cRows.push(row(label, { timeSec: p.timeSec, distanceKm: p.distanceKm }, {}, {})); };
+      warm('warmup', 'Oppvarming');
+      cRows.push(row(iv0(en) ? 'Drag totalt' : 'Totalt', st, st, { hr: en.avgHr, maxHr: en.maxHr, note: en.note }, true));
       resolvedSegments(en).forEach((s, j) => cRows.push(row(`Segment ${j + 1}`, s, s, {})));
       const iv = intervalTotals(en);
       if (iv) {
         const ivs = (en.intervals || []).filter((x) => x.timeSec > 0 || x.distanceKm > 0);
         iv.parts.forEach((p, j) => cRows.push(row(`Drag ${j + 1}`, p, ivs[j], { rest: j < ivs.length - 1 ? ivs[j].restSec : null })));
       }
+      warm('cooldown', 'Nedtrapping');
     }
     shadeOn = !shadeOn;
   }
@@ -3410,7 +3667,7 @@ function exportXlsx(from, to) {
   }
   for (const ex of topCardio) {
     const cfg = exCfg(ex);
-    block(ex, ['Distanse (km)', 'Tid', cfg.speed === 'pace500' ? 'Tempo (/500 m)' : 'Fart (km/t)'],
+    block(ex, ['Distanse (km)', 'Tid', cfg.speed === 'pace500' ? 'Tempo (min/500 m)' : 'Fart (km/t)'],
       (h) => [h.st.distanceKm ? Math.round(h.st.distanceKm * 100) / 100 : null, T(h.st.timeSec), cfg.speed === 'pace500' ? T(h.st.pace500) : N(h.st.speed, '0.0')], `${ex.name}: distanse (km)`, '0.00', BLUE);
   }
   if (f.length === 3) f.push(muted('For lite data i perioden til å vise utvikling.'));
@@ -3605,6 +3862,8 @@ const actions = {
       const last = same[same.length - 1];
       if (!last) return;
       for (const k of ['timeSec', 'distanceKm', 'speedKmh', 'distUnit', ...Object.keys(CARDIO_FIELDS)]) en[k] = last.en[k] ?? null;
+      en.warmup = last.en.warmup ? { ...last.en.warmup } : null;
+      en.cooldown = last.en.cooldown ? { ...last.en.cooldown } : null;
       en.segments = clone(last.en.segments || []);
       en.intervals = clone(last.en.intervals || []);
     }
@@ -3932,6 +4191,7 @@ const actions = {
     const info = $('[data-muscle-info]');
     if (info) info.innerHTML = `<b>${esc(muscleName(m))}</b> · ${v ? `${fmtNum(v, 1)} arbeidssett` : 'ikke trent i perioden'}`;
   },
+  'iv-setup': (el) => { statsUI.setup[el.dataset.ex] = el.dataset.v; renderStats(el.dataset.ex); },
   'purpose-filter': (el) => { statsUI.purpose[el.dataset.ex] = el.dataset.v; renderStats(el.dataset.ex); },
   'stats-weight': (el) => { statsUI.weight[el.dataset.ex] = +el.dataset.v; renderStats(el.dataset.ex); },
   'ex-menu': (el) => {
@@ -4018,12 +4278,12 @@ document.addEventListener('input', (ev) => {
   } else if (f === 'note') {
     en.note = t.value;
   } else {
-    // Kondisjon: økta selv, et segment (data-g) eller et drag (data-iv)
-    const g = t.dataset.g, iv = t.dataset.iv;
-    const obj = g != null ? en.segments[+g] : iv != null ? en.intervals[+iv] : en;
+    // Kondisjon: økta selv, et segment (data-g), et drag (data-iv) eller oppvarming/nedtrapping (data-wu)
+    const g = t.dataset.g, iv = t.dataset.iv, wu = t.dataset.wu;
+    const obj = wu ? (en[wu] ||= {}) : g != null ? en.segments[+g] : iv != null ? en.intervals[+iv] : en;
     const cfg = exCfg(exById(en.exerciseId));
     const unit = unitOf(en, cfg);
-    const scope = `input[data-e="${t.dataset.e}"]${g != null ? `[data-g="${g}"]` : iv != null ? `[data-iv="${iv}"]` : ':not([data-g]):not([data-iv])'}`;
+    const scope = `input[data-e="${t.dataset.e}"]${wu ? `[data-wu="${wu}"]` : g != null ? `[data-g="${g}"]` : iv != null ? `[data-iv="${iv}"]` : ':not([data-g]):not([data-iv]):not([data-wu])'}`;
     const pair = (key) => {
       const mn = num(document.querySelector(`${scope}[data-f="${key}min"]`)?.value);
       const sc = num(document.querySelector(`${scope}[data-f="${key}sec"]`)?.value);
@@ -4039,7 +4299,7 @@ document.addEventListener('input', (ev) => {
     else obj[f] = num(t.value);
     if (cfg.pace && (f === 'speedKmh' || (pm && pm[1] === 'q'))) syncSpeedInputs(scope, obj.speedKmh, f === 'speedKmh' ? 'speedKmh' : 'q');
     if (obj !== en) {
-      const h = document.querySelector(`[data-hint="${t.dataset.e}-${g != null ? 'g' + g : 'i' + iv}"]`);
+      const h = document.querySelector(`[data-hint="${t.dataset.e}-${wu || (g != null ? 'g' + g : 'i' + iv)}"]`);
       if (h) h.textContent = partHint(obj.timeSec, obj.distanceKm, obj.speedKmh, cfg, unit);
     }
   }
