@@ -787,9 +787,9 @@ function weeklyGoalCard() {
         <span class="goal-label">Ukemål</span>
         <div class="goal-count"><b>${done}</b> av ${goal} økter</div>
       </div>
-      <div class="streak${streak ? '' : ' streak-zero'}" aria-label="${streak} ${streak === 1 ? 'uke' : 'uker'} på rad med nådd ukemål">
+      <div class="streak${streak ? '' : ' streak-zero'}" aria-label="${streak === 1 ? '1 uke med nådd ukemål' : `${streak} uker på rad med nådd ukemål`}">
         <span class="streak-flame" aria-hidden="true">🔥</span>
-        <div><b>${streak}</b><span>${streak === 1 ? 'uke' : 'uker'} på rad</span></div>
+        <div><b>${streak}</b><span>${streak === 1 ? 'uke fullført' : 'uker på rad'}</span></div>
       </div>
     </div>
     <div class="goal-track" role="progressbar" aria-label="Økter denne uka" aria-valuemin="0" aria-valuemax="${goal}" aria-valuenow="${Math.min(done, goal)}">
@@ -3361,7 +3361,7 @@ const MORE_ICONS = {
   mail: 'M4 6h16v12H4zM4 7l8 6 8-6',
   trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
 };
-const APP_VERSION = '3.3';
+const APP_VERSION = '3.4';
 // I iOS-appen vises appens eget versjonsnummer, i nettappen APP_VERSION
 const appVersion = () => window.nativeApp?.version || APP_VERSION;
 // E-post til kundestøtte med versjon og enhet fylt inn, så det er lettere å hjelpe
