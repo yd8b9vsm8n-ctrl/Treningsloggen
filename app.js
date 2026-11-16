@@ -353,6 +353,8 @@ function warmTotals(en) {
   if (!parts.length) return null;
   return { sec: parts.reduce((a, p) => a + (p.timeSec || 0), 0), km: parts.reduce((a, p) => a + (p.distanceKm || 0), 0) };
 }
+// Hele øvelsens tid, med oppvarming og nedtrapping (til øktas varighet – ikke til tempo eller rekorder)
+const cardioTotalSec = (en) => (cardioStats(en)?.timeSec || 0) + (warmTotals(en)?.sec || 0);
 const warmText = (p, cfg, unit) => {
   const t = p.timeSec ? fmtDuration(p.timeSec) : '', d = p.distanceKm && cfg.distance ? fmtDist(p.distanceKm, unit) : '';
   return t && d ? `${t} (${d})` : t || d;
@@ -506,6 +508,7 @@ function cardioSummary(en, withPurpose = true) {
     if (st.distanceKm && cfg.distance) parts.push(fmtDist(st.distanceKm, unit));
     if (en.warmup && warmTotals(en)) parts.push(`oppvarming ${warmText(en.warmup, cfg, unit)}`);
     if (en.cooldown && warmTotals(en)) parts.push(`nedtrapping ${warmText(en.cooldown, cfg, unit)}`);
+    if (warmTotals(en)?.sec && st.timeSec) parts.push(`totalt ${fmtDuration(cardioTotalSec(en))}`);
   } else {
     if (st.timeSec) parts.push(fmtDuration(st.timeSec));
     if (st.distanceKm && cfg.distance) parts.push(fmtDist(st.distanceKm, unit));
@@ -1544,11 +1547,11 @@ async function saveWorkout() {
   }
   if (durationMin == null) {
     // Ført inn i etterkant: bruk summen av kondisjonstid hvis det finnes
-    const sec = entries.reduce((a, en) => a + (exById(en.exerciseId).kind === 'cardio' ? cardioStats(en)?.timeSec || 0 : 0), 0);
-    if (sec) durationMin = Math.round(sec / 60);
+    const sec = entries.reduce((a, en) => a + (exById(en.exerciseId).kind === 'cardio' ? cardioTotalSec(en) : 0), 0);
+    if (sec) durationMin = Math.ceil(sec / 60); // rundes opp, likt med sjekken mot øvelsenes tid under
   }
   // Hele økta kan ikke være kortere enn tiden på kondisjonsøvelsene
-  const exMin = Math.ceil(entries.reduce((a, en) => a + (exById(en.exerciseId).kind === 'cardio' ? cardioStats(en)?.timeSec || 0 : 0), 0) / 60);
+  const exMin = Math.ceil(entries.reduce((a, en) => a + (exById(en.exerciseId).kind === 'cardio' ? cardioTotalSec(en) : 0), 0) / 60);
   if (durationMin != null && durationMin < exMin) {
     if (durationMode(d) !== 'timer') {
       const ok = await askConfirm(`Øvelsene varer til sammen ${exMin} min, men hele økta er satt til ${fmtNum(durationMin, 0)} min.`, { title: 'For kort økt', ok: `Bruk ${exMin} min`, cancel: 'Gå tilbake' });
@@ -3361,7 +3364,7 @@ const MORE_ICONS = {
   mail: 'M4 6h16v12H4zM4 7l8 6 8-6',
   trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
 };
-const APP_VERSION = '3.4';
+const APP_VERSION = '3.5';
 // I iOS-appen vises appens eget versjonsnummer, i nettappen APP_VERSION
 const appVersion = () => window.nativeApp?.version || APP_VERSION;
 // E-post til kundestøtte med versjon og enhet fylt inn, så det er lettere å hjelpe
