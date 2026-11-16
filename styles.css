@@ -1030,3 +1030,25 @@ mark { background: rgb(var(--accent-rgb) / .22); color: var(--text); border-radi
 .warm-card .part-head b { color: var(--text-2); }
 .warm-line { margin: 8px 0 0; }
 .warm-line b { color: var(--text-2); font-weight: 650; margin-right: 4px; }
+/* Velg tidligere intervall-/terskeløkt */
+.session-btn {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; margin-top: 12px; padding: 10px 14px;
+  border: 1px solid rgb(var(--accent-rgb) / .35); border-radius: 12px; background: rgb(var(--accent-rgb) / .08); color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.session-btn small { display: block; font-size: 12px; color: var(--muted); }
+.session-btn b { font-size: 15px; }
+.session-btn-more { flex: none; font-size: 13px; font-weight: 650; color: var(--accent); }
+.session-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.session-pick {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 12px 14px;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.session-pick[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.session-pick small { display: block; margin-top: 2px; font-size: 12.5px; color: var(--muted); }
+.session-pick b { font-size: 15px; }
+.session-meta { flex: none; text-align: right; }
+.session-meta b { font-variant-numeric: tabular-nums; }
+.session-row { display: flex; align-items: stretch; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
+.session-row.on { border-color: var(--accent); background: var(--accent-soft); }
+.session-row .session-pick { flex: 1; min-width: 0; border: 0; border-radius: 0; background: none; }
+.session-edit { flex: none; display: grid; place-items: center; width: 44px; border: 0; border-left: 1px solid var(--border); background: none; color: var(--muted); cursor: pointer; }

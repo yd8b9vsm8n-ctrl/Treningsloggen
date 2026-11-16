@@ -214,6 +214,7 @@ function migrate(d) {
   d.deletedDefaults ||= [];
   d.folders ||= [];
   d.templates ||= [];
+  d.setupNames ||= {}; // egne navn på intervall-/terskeloppsett: «øvelse|type|oppsett» → navn
   d.profile ||= {};
   delete d.profile.weightKg; // vekt er fjernet fra profilen og skal ikke ligge lagret
   // Mappen het tidligere «Helkropp» og deretter «HIIT» (gjelder også egne øvelser)
@@ -1106,11 +1107,14 @@ function entryCard(en, i) {
   const ex = exById(en.exerciseId);
   const hist = historyFor(ex.id, db.draft.id);
   const { prev, body } = ex.kind === 'cardio' ? cardioBody(en, i, ex, hist) : strengthBody(en, i, ex, hist);
-  // Notatet fra siste gang øvelsen ble gjort, f.eks. «øk vekten neste gang»
-  const last = hist[hist.length - 1];
+  // Notatet fra siste gang øvelsen ble gjort, f.eks. «øk vekten neste gang». Kondisjon: fra samme type økt.
+  const purpose = en.purpose || 'endurance';
+  const pool = ex.kind === 'cardio' ? hist.filter((h) => (h.en.purpose || 'endurance') === purpose) : hist;
+  // Valgt tidligere økt (Velg tidligere økt) gir notatet fra den økta
+  const last = (en.ref && pool.find((h) => h.w.id === en.ref)) || pool[pool.length - 1];
   const lastNote = last?.en.note?.trim();
   const noteHtml = lastNote
-    ? `<div class="last-note"><span class="last-note-label">📝 Notat fra sist · ${esc(shortDate(last.w.date))}</span>${esc(lastNote)}</div>`
+    ? `<div class="last-note"><span class="last-note-label">📝 Notat fra sist${ex.kind === 'cardio' ? ` (${{ endurance: 'utholdenhet', interval: 'intervall', threshold: 'terskel', easy: 'rolig' }[purpose]})` : ''} · ${esc(shortDate(last.w.date))}</span>${esc(lastNote)}</div>`
     : '';
   return `<article class="card" id="entry-${i}">
     <div class="entry-head"><h3>${esc(ex.name)}</h3>
@@ -1283,7 +1287,8 @@ function cardioBody(en, i, ex, hist) {
   const unit = unitOf(en, cfg);
   const purpose = en.purpose || 'endurance';
   const same = hist.filter((h) => (h.en.purpose || 'endurance') === purpose);
-  const last = same[same.length - 1];
+  // Valgt tidligere økt (Velg tidligere økt) gir hintene, ellers den siste av samme type
+  const last = (en.ref && same.find((h) => h.w.id === en.ref)) || same[same.length - 1];
 
   let head = `<p class="chip-label" style="margin-top:10px">Type økt</p>
   <div class="chips purpose" role="group" aria-label="Type økt">
@@ -1365,7 +1370,12 @@ function intervalForm(en, i, cfg, unit, last) {
   const ivs = en.intervals || [];
   const lastIvs = last?.en.intervals || [];
   const rates = cfg.fields.filter((f) => CARDIO_FIELDS[f].rate);
-  return `${warmPart(en, i, 'warmup', 'Oppvarming', cfg, unit, last)}
+  const sessions = pastSessions(en.exerciseId, en.purpose);
+  const picked = sessions.find((x) => x.h.w.id === en.ref);
+  return `${sessions.length ? `<button type="button" class="session-btn" data-act="iv-pick" data-e="${i}">
+      <span>${picked ? `<small>Tidligere gjennomførte økter</small><b>${esc(setupName(en.exerciseId, en.purpose, picked.key) || picked.key)}</b>` : '<b>Tidligere gjennomførte økter</b>'}</span>
+      <span class="session-btn-more">${sessions.length} ›</span></button>` : ''}
+    ${warmPart(en, i, 'warmup', 'Oppvarming', cfg, unit, last)}
     <div class="iv-stepper">
       <span>Antall intervaller</span>
       <div class="stepper">
@@ -1429,6 +1439,67 @@ function derivedText(en) {
   return parts.length ? 'Beregnet: ' + parts.join(' · ') : '';
 }
 
+/* ---------- Tidligere intervall- og terskeløkter ----------
+   Når man velger intervall/terskel, settes forrige økt av samme type opp igjen. Man kan også velge
+   blant tidligere oppsett. Bare selve oppsettet fylles inn (distanse eller tid per drag, pauser,
+   oppvarming og nedtrapping). Resultatene fra den økta vises som hint i feltene. */
+const setupKey = (exId, purpose, setup) => `${exId}|${purpose}|${setup}`;
+const setupName = (exId, purpose, setup) => db.setupNames?.[setupKey(exId, purpose, setup)] || null;
+// Eget navn med oppsettet i parentes, eller bare oppsettet
+const setupTitle = (exId, purpose, setup) => { const n = setupName(exId, purpose, setup); return n ? `${n} (${setup})` : setup; };
+function openSetupName(i, setup) {
+  const en = db.draft.entries[i];
+  const cur = setupName(en.exerciseId, en.purpose, setup) || '';
+  openSheet(`<h2>Navn på økta</h2>
+    <p class="small muted" style="margin-top:-4px">${esc(setup)} · ${esc(purposeLabel(en.purpose))}</p>
+    <label class="field">Navn<input data-setup-name maxlength="30" value="${esc(cur)}" placeholder="f.eks. Terskel lang" autocomplete="off"></label>
+    <div class="btn-row" style="margin-top:14px">
+      <button class="btn ghost" data-act="iv-pick" data-e="${i}">Avbryt</button>
+      <button class="btn primary" data-act="setup-name-save" data-e="${i}" data-s="${esc(setup)}">Lagre</button>
+    </div>
+    ${cur ? `<button class="link-btn" style="display:block;margin:14px auto 0;color:var(--danger)" data-act="setup-name-save" data-e="${i}" data-s="${esc(setup)}" data-clear="1">Fjern navnet</button>` : ''}`);
+  setTimeout(() => $('#sheet-root [data-setup-name]')?.focus(), 50);
+}
+function pastSessions(exId, purpose) {
+  const hist = historyFor(exId, db.draft?.id).filter((h) => h.en.purpose === purpose && intervalTotals(h.en));
+  const map = new Map();
+  for (const h of [...hist].reverse()) {
+    const key = intervalSetup(h.en), e = map.get(key);
+    if (e) e.count++; else map.set(key, { key, h, count: 1 });
+  }
+  return [...map.values()];
+}
+function applySession(en, src, wid) {
+  const ivs = (src.intervals || []).filter((x) => x.timeSec > 0 || x.distanceKm > 0);
+  if (!ivs.length) return;
+  const same = (k) => ivs.every((x) => x[k] > 0 && Math.abs(x[k] - ivs[0][k]) <= ivs[0][k] * 0.01);
+  // Er dragene definert av distanse (5 × 1 km) eller tid (10 × 1:00)?
+  const byDist = same('distanceKm') || (!same('timeSec') && ivs.every((x) => x.distanceKm > 0));
+  en.intervals = ivs.map((x, j) => ({ ...blankInterval(), ...(byDist ? { distanceKm: x.distanceKm } : { timeSec: x.timeSec }), restSec: j < ivs.length - 1 ? x.restSec ?? null : null }));
+  en.warmup = src.warmup ? { ...src.warmup } : null;
+  en.cooldown = src.cooldown ? { ...src.cooldown } : null;
+  en.ref = wid; // hint i feltene hentes fra denne økta
+}
+function openSessionPicker(i) {
+  const en = db.draft.entries[i];
+  const ex = exById(en.exerciseId), cfg = exCfg(ex);
+  const list = pastSessions(en.exerciseId, en.purpose);
+  openSheet(`<h2>Tidligere gjennomførte økter</h2>
+    <p class="small muted" style="margin-top:-4px">${esc(purposeLabel(en.purpose))} · ${esc(ex.name)}</p>
+    <div class="scroll session-list">${list.map(({ key, h, count }) => {
+      const iv = intervalTotals(h.en), rest = (h.en.intervals || []).find((x) => x.restSec)?.restSec;
+      const name = setupName(en.exerciseId, en.purpose, key);
+      const extra = [name ? key : '', rest ? `pause ${fmtDuration(rest)}` : '', h.en.warmup ? 'oppvarming' : '', h.en.cooldown ? 'nedtrapping' : ''].filter(Boolean).join(' · ');
+      return `<div class="session-row${en.ref === h.w.id ? ' on' : ''}">
+        <button type="button" class="session-pick" data-act="iv-template" data-e="${i}" data-w="${esc(h.w.id)}" data-x="${h.w.entries.indexOf(h.en)}">
+          <span><b>${esc(name || key)}</b><small>${esc(extra)}</small></span>
+          <span class="session-meta">${iv.speed && cfg.speed !== 'none' ? `<b>${esc(speedText(iv.speed, ex))}</b>` : ''}<small>Sist ${esc(shortDate(h.w.date))}${count > 1 ? ` · ${count} ganger` : ''}</small></span></button>
+        <button type="button" class="session-edit" data-act="setup-name" data-e="${i}" data-s="${esc(key)}" aria-label="${name ? 'Endre navn' : 'Gi navn'} på ${esc(name || key)}">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      </div>`;
+    }).join('')}</div>`);
+}
+
 function blankCardio() {
   const o = { timeSec: null, distanceKm: null, speedKmh: null, avgHr: null, maxHr: null, kcal: null, purpose: 'endurance', distUnit: null, segments: [], intervals: [] };
   for (const f of Object.keys(CARDIO_FIELDS)) o[f] = null;
@@ -1462,7 +1533,7 @@ function makeEntry(exId) {
   const last = hist[hist.length - 1];
   if (ex.kind === 'cardio') {
     Object.assign(entry, blankCardio(), { purpose: last?.en.purpose || 'endurance' });
-    if (isIntervalType(entry.purpose)) entry.intervals = (last.en.intervals || [blankInterval()]).map(blankInterval);
+    if (isIntervalType(entry.purpose)) applySession(entry, last.en, last.w.id);
   } else {
     // Antall sett som sist forrige reps-økt; verdiene fra forrige gang vises som hint
     const lastReps = [...hist].reverse().find((h) => (h.en.mode || 'reps') === 'reps');
@@ -1490,6 +1561,7 @@ function cleanEntry(orig) {
     return en.sets.length ? en : null;
   }
   en.purpose ||= 'endurance';
+  delete en.ref;
   if (isIntervalType(en.purpose)) {
     // Intervalløkt: totalverdier og segmenter hører til utholdenhetsskjemaet
     en.intervals = (en.intervals || []).filter((x) => x.timeSec > 0 || x.distanceKm > 0 || x.speedKmh > 0);
@@ -2473,7 +2545,7 @@ function cardioRecordsCard(ex) {
     ['Generelt', (k) => k === 'distanceKm' || k === 'watt', (k) => recordMeta(k, ex).label],
     ['Utholdenhet', (k) => k === 'endurance:speed', () => `Beste ${sp.toLowerCase()}`],
     ['Terskel', (k) => k.startsWith('threshold:'), (k) => (k === 'threshold:work' ? 'Lengste tid i drag' : THRESHOLD_GROUPS[k.slice(10)])],
-    ['Intervall', (k) => k.startsWith('interval:'), (k) => k.slice(9)],
+    ['Intervall', (k) => k.startsWith('interval:'), (k) => setupTitle(ex.id, 'interval', k.slice(9))],
   ];
   for (const [title, match, name] of GROUPS) {
     const keys = others.filter(match);
@@ -3063,7 +3135,7 @@ function renderStats(exId) {
         // Standard: mest brukte oppsett hvis det er gjentatt, ellers alle
         const sel = statsUI.setup[exId] === 'all' || counts.has(statsUI.setup[exId]) ? statsUI.setup[exId] : counts.get(setups[0]) > 1 ? setups[0] : 'all';
         filterHtml += `<p class="chip-label">Oppsett</p><div class="chips" role="group" aria-label="Oppsett">
-          ${[['all', 'Alle'], ...setups.map((s) => [s, s])].map(([v, l]) => `<button class="chip" data-act="iv-setup" data-ex="${esc(exId)}" data-v="${esc(v)}" aria-pressed="${v === sel}">${esc(l)}</button>`).join('')}
+          ${[['all', 'Alle'], ...setups.map((s) => [s, setupName(exId, pf, s) || s])].map(([v, l]) => `<button class="chip" data-act="iv-setup" data-ex="${esc(exId)}" data-v="${esc(v)}" aria-pressed="${v === sel}">${esc(l)}</button>`).join('')}
         </div>`;
         if (sel !== 'all') hist = hist.filter((h) => intervalSetup(h.en) === sel);
       }
@@ -3364,7 +3436,7 @@ const MORE_ICONS = {
   mail: 'M4 6h16v12H4zM4 7l8 6 8-6',
   trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
 };
-const APP_VERSION = '3.5';
+const APP_VERSION = '3.6';
 // I iOS-appen vises appens eget versjonsnummer, i nettappen APP_VERSION
 const appVersion = () => window.nativeApp?.version || APP_VERSION;
 // E-post til kundestøtte med versjon og enhet fylt inn, så det er lettere å hjelpe
@@ -3710,6 +3782,7 @@ function importData(file) {
       for (const e of d.exercises) if (!exIds.has(e.id)) db.exercises.push(e);
       for (const f of d.folders || []) if (!folderById(f.id)) db.folders.push(f);
       for (const t of d.templates || []) if (!templateById(t.id)) db.templates.push(t);
+      db.setupNames = { ...(d.setupNames || {}), ...db.setupNames };
       if (d.profile && !Object.values(db.profile || {}).some(Boolean)) db.profile = d.profile;
       const wIds = new Map(db.workouts.map((w, i) => [w.id, i]));
       let added = 0;
@@ -3911,14 +3984,37 @@ const actions = {
     en.purpose = el.dataset.v;
     en.segments ||= [];
     en.intervals ||= [];
-    // Ny intervalløkt: start med samme antall drag som sist
-    if (isIntervalType(en.purpose) && !en.intervals.length) {
-      const hist = historyFor(en.exerciseId, db.draft.id).filter((h) => h.en.purpose === en.purpose);
-      const n = hist.length ? (hist[hist.length - 1].en.intervals || []).length : 4;
-      en.intervals = Array.from({ length: Math.max(1, n) }, blankInterval);
+    // Ny intervall-/terskeløkt: sett opp igjen forrige økt av samme type, ellers 4 tomme drag
+    // (også når dragene bare var et oppsett fra en annen type, f.eks. ved bytte fra intervall til terskel)
+    if (isIntervalType(en.purpose) && (!en.intervals.length || en.ref)) {
+      const prev = pastSessions(en.exerciseId, en.purpose)[0];
+      if (prev) applySession(en, prev.h.en, prev.h.w.id);
+      else Object.assign(en, { intervals: Array.from({ length: 4 }, blankInterval), warmup: null, cooldown: null, ref: null });
     }
     save();
     renderEditor();
+  },
+  'iv-pick': (el) => openSessionPicker(+el.dataset.e),
+  'setup-name': (el) => openSetupName(+el.dataset.e, el.dataset.s),
+  'setup-name-save': (el) => {
+    const en = db.draft.entries[+el.dataset.e];
+    const key = setupKey(en.exerciseId, en.purpose, el.dataset.s);
+    const name = el.dataset.clear ? '' : ($('#sheet-root [data-setup-name]')?.value || '').trim();
+    if (name) db.setupNames[key] = name; else delete db.setupNames[key];
+    save();
+    renderEditor();
+    openSessionPicker(+el.dataset.e);
+  },
+  'iv-template': (el) => {
+    const en = db.draft.entries[+el.dataset.e];
+    const w = db.workouts.find((x) => x.id === el.dataset.w);
+    const src = w?.entries[+el.dataset.x];
+    if (!src) return;
+    applySession(en, src, w.id);
+    closeSheet();
+    save();
+    renderEditor();
+    toast(`Satt opp som ${setupName(en.exerciseId, en.purpose, intervalSetup(src)) || intervalSetup(src)}`);
   },
   'iv-count': (el) => {
     const en = db.draft.entries[+el.dataset.e];
