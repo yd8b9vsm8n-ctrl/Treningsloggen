@@ -1324,7 +1324,8 @@ function enduranceForm(en, i, cfg, unit, last) {
   const segs = en.segments || [];
   const lastSegs = last?.en.segments || [];
   const rates = cfg.fields.filter((f) => CARDIO_FIELDS[f].rate);
-  return `<div class="cardio-grid">
+  return `${last ? `<div class="row" style="margin:10px 0 4px"><button class="btn ghost sm" data-act="fill-last" data-e="${i}">↺ Som sist</button></div>` : ''}
+    <div class="cardio-grid">
       <div><label class="field">Total tid (min:sek)</label>${timePair('t', en.timeSec, a, lastSt?.timeSec)}</div>
       ${cfg.distance ? distField(a, en.distanceKm, lastSt?.distanceKm, unit) : ''}
       ${speedField(a, en.speedKmh, lastSt?.speed, cfg, cfg.speed === 'pace500' ? 'Snittempo' : 'Snittfart')}
@@ -1350,7 +1351,6 @@ function enduranceForm(en, i, cfg, unit, last) {
     }).join('')}
     <div class="row" style="margin-top:10px">
       <button class="btn ghost sm" data-act="add-seg" data-e="${i}">+ Legg til segment</button>
-      ${last ? `<button class="btn ghost sm" data-act="fill-last" data-e="${i}">↺ Som sist</button>` : ''}
     </div>
     <p class="derived" data-derived="${i}">${derivedText(en)}</p>`;
 }
@@ -1375,6 +1375,7 @@ function intervalForm(en, i, cfg, unit, last) {
   return `${sessions.length ? `<button type="button" class="session-btn" data-act="iv-pick" data-e="${i}">
       <span>${picked ? `<small>Tidligere gjennomførte økter</small><b>${esc(setupName(en.exerciseId, en.purpose, picked.key) || picked.key)}</b>` : '<b>Tidligere gjennomførte økter</b>'}</span>
       <span class="session-btn-more">${sessions.length} ›</span></button>` : ''}
+    ${last ? `<div class="row" style="margin:10px 0 4px"><button class="btn ghost sm" data-act="fill-last" data-e="${i}">↺ Som sist</button></div>` : ''}
     ${warmPart(en, i, 'warmup', 'Oppvarming', cfg, unit, last)}
     <div class="iv-stepper">
       <span>Antall intervaller</span>
@@ -1407,7 +1408,6 @@ function intervalForm(en, i, cfg, unit, last) {
       ${cfg.fields.filter((f) => !CARDIO_FIELDS[f].rate).map((f) => extraField(`data-e="${i}"`, f, en[f], last?.en[f])).join('')}
       <label class="field">Snittpuls<input inputmode="numeric" data-e="${i}" data-f="avgHr" value="${inputVal(en.avgHr)}" placeholder="${ph(last ? cardioStats(last.en)?.avgHr : null, 0)}"></label>
       <label class="field">Makspuls<input inputmode="numeric" data-e="${i}" data-f="maxHr" value="${inputVal(en.maxHr)}" placeholder="${ph(last ? cardioStats(last.en)?.maxHr : null, 0)}"></label>
-      ${last ? `<div style="align-self:end"><button class="btn ghost sm" data-act="fill-last" data-e="${i}">↺ Som sist</button></div>` : ''}
     </div>
     <p class="derived" data-derived="${i}">${derivedText(en)}</p>`;
 }
@@ -1440,9 +1440,8 @@ function derivedText(en) {
 }
 
 /* ---------- Tidligere intervall- og terskeløkter ----------
-   Når man velger intervall/terskel, settes forrige økt av samme type opp igjen. Man kan også velge
-   blant tidligere oppsett. Bare selve oppsettet fylles inn (distanse eller tid per drag, pauser,
-   oppvarming og nedtrapping). Resultatene fra den økta vises som hint i feltene. */
+   Når man velger intervall/terskel, vises forrige økt av samme type som hint (graverte verdier) med
+   like mange drag. Man kan også velge blant tidligere økter. Verdiene fylles først inn med «Som sist». */
 const setupKey = (exId, purpose, setup) => `${exId}|${purpose}|${setup}`;
 const setupName = (exId, purpose, setup) => db.setupNames?.[setupKey(exId, purpose, setup)] || null;
 // Eget navn med oppsettet i parentes, eller bare oppsettet
@@ -1469,17 +1468,19 @@ function pastSessions(exId, purpose) {
   }
   return [...map.values()];
 }
+// Setter opp like mange tomme drag som i den valgte økta. Verdiene vises bare som hint (gravert)
+// til man trykker «Som sist».
 function applySession(en, src, wid) {
-  const ivs = (src.intervals || []).filter((x) => x.timeSec > 0 || x.distanceKm > 0);
-  if (!ivs.length) return;
-  const same = (k) => ivs.every((x) => x[k] > 0 && Math.abs(x[k] - ivs[0][k]) <= ivs[0][k] * 0.01);
-  // Er dragene definert av distanse (5 × 1 km) eller tid (10 × 1:00)?
-  const byDist = same('distanceKm') || (!same('timeSec') && ivs.every((x) => x.distanceKm > 0));
-  en.intervals = ivs.map((x, j) => ({ ...blankInterval(), ...(byDist ? { distanceKm: x.distanceKm } : { timeSec: x.timeSec }), restSec: j < ivs.length - 1 ? x.restSec ?? null : null }));
-  en.warmup = src.warmup ? { ...src.warmup } : null;
-  en.cooldown = src.cooldown ? { ...src.cooldown } : null;
-  en.ref = wid; // hint i feltene hentes fra denne økta
+  const n = (src.intervals || []).filter((x) => x.timeSec > 0 || x.distanceKm > 0).length;
+  if (!n) return;
+  en.intervals = Array.from({ length: n }, blankInterval);
+  en.warmup = null;
+  en.cooldown = null;
+  en.ref = wid; // hint i feltene og «Som sist» hentes fra denne økta
 }
+// Ingen verdier fylt inn i drag, oppvarming eller nedtrapping ennå
+const ivEmpty = (en) => !(en.intervals || []).some((x) => x.timeSec > 0 || x.distanceKm > 0 || x.speedKmh > 0 || x.restSec > 0)
+  && !['warmup', 'cooldown'].some((k) => en[k]?.timeSec > 0 || en[k]?.distanceKm > 0);
 function openSessionPicker(i) {
   const en = db.draft.entries[i];
   const ex = exById(en.exerciseId), cfg = exCfg(ex);
@@ -3436,7 +3437,7 @@ const MORE_ICONS = {
   mail: 'M4 6h16v12H4zM4 7l8 6 8-6',
   trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
 };
-const APP_VERSION = '3.6';
+const APP_VERSION = '3.7';
 // I iOS-appen vises appens eget versjonsnummer, i nettappen APP_VERSION
 const appVersion = () => window.nativeApp?.version || APP_VERSION;
 // E-post til kundestøtte med versjon og enhet fylt inn, så det er lettere å hjelpe
@@ -3935,7 +3936,7 @@ const actions = {
     } else {
       const p = en.purpose || 'endurance';
       const same = hist.filter((h) => (h.en.purpose || 'endurance') === p);
-      const last = same[same.length - 1];
+      const last = (en.ref && same.find((h) => h.w.id === en.ref)) || same[same.length - 1];
       if (!last) return;
       for (const k of ['timeSec', 'distanceKm', 'speedKmh', 'distUnit', ...Object.keys(CARDIO_FIELDS)]) en[k] = last.en[k] ?? null;
       en.warmup = last.en.warmup ? { ...last.en.warmup } : null;
@@ -3984,9 +3985,9 @@ const actions = {
     en.purpose = el.dataset.v;
     en.segments ||= [];
     en.intervals ||= [];
-    // Ny intervall-/terskeløkt: sett opp igjen forrige økt av samme type, ellers 4 tomme drag
-    // (også når dragene bare var et oppsett fra en annen type, f.eks. ved bytte fra intervall til terskel)
-    if (isIntervalType(en.purpose) && (!en.intervals.length || en.ref)) {
+    // Ny intervall-/terskeløkt: vis forrige økt av samme type som hint, ellers 4 tomme drag
+    // (så lenge ingenting er fylt inn, f.eks. ved bytte fra intervall til terskel)
+    if (isIntervalType(en.purpose) && ivEmpty(en)) {
       const prev = pastSessions(en.exerciseId, en.purpose)[0];
       if (prev) applySession(en, prev.h.en, prev.h.w.id);
       else Object.assign(en, { intervals: Array.from({ length: 4 }, blankInterval), warmup: null, cooldown: null, ref: null });
@@ -4014,7 +4015,7 @@ const actions = {
     closeSheet();
     save();
     renderEditor();
-    toast(`Satt opp som ${setupName(en.exerciseId, en.purpose, intervalSetup(src)) || intervalSetup(src)}`);
+    toast('Verdiene vises gravert – trykk «Som sist» for å fylle dem inn');
   },
   'iv-count': (el) => {
     const en = db.draft.entries[+el.dataset.e];
