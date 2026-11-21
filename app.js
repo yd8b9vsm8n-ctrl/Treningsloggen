@@ -483,14 +483,52 @@ function maxSummary(en) {
   if (!st) return '–';
   return `1RM-test: ${st.tested ? `${fmtNum(st.tested, 2)} kg` : 'ingen godkjente løft'} (${st.sets} forsøk)`;
 }
+/* Runder: dragene ligger etter hverandre i en.intervals, og hvert drag har round (1, 2, …) når økta er
+   delt inn i runder. Pausen etter siste drag i en runde er pausen mellom rundene. Slik virker tid,
+   tempo, rekorder og eksport som for vanlige intervaller. */
+function ivRounds(ivs) {
+  if (!ivs.some((x) => x.round > 1)) return null;
+  const out = [];
+  for (const x of ivs) (out[(x.round || 1) - 1] ||= []).push(x);
+  return out.filter(Boolean);
+}
+// Sorterer dragene etter runde, nummererer rundene 1, 2, … og fjerner runder når det bare er én igjen
+function normRounds(en) {
+  const ivs = en.intervals || [];
+  const map = new Map();
+  if (ivs.some((x) => x.round > 1)) {
+    ivs.sort((a, b) => (a.round || 1) - (b.round || 1));
+    for (const x of ivs) { const r = x.round || 1; if (!map.has(r)) map.set(r, map.size + 1); x.round = map.get(r); }
+  }
+  if (map.size < 2) for (const x of ivs) delete x.round;
+}
+// Etikett for drag nr. j (blant dragene med verdier): «Drag 3» eller «Runde 2, drag 1»
+function ivLabel(ivs, j) {
+  const r = ivs[j]?.round;
+  if (!r || !ivs.some((x) => x.round > 1)) return `Drag ${j + 1}`;
+  return `Runde ${r}, drag ${ivs.slice(0, j + 1).filter((x) => x.round === r).length}`;
+}
 function intervalSummary(en, unit) {
   const ivs = (en.intervals || []).filter((x) => x.timeSec > 0 || x.distanceKm > 0);
   if (!ivs.length) return null;
-  const same = (k) => ivs.every((x) => x[k] === ivs[0][k]);
-  let s = `${ivs.length} × `;
-  if (same('timeSec') && ivs[0].timeSec) s += fmtDuration(ivs[0].timeSec);
-  else if (same('distanceKm') && ivs[0].distanceKm) s += fmtDist(ivs[0].distanceKm, unit);
-  else s += 'drag';
+  const group = (g) => {
+    const same = (k) => g.every((x) => x[k] === g[0][k]);
+    if (same('distanceKm') && g[0].distanceKm) return `${g.length} × ${fmtDist(g[0].distanceKm, unit)}`;
+    if (same('timeSec') && g[0].timeSec) return `${g.length} × ${fmtDuration(g[0].timeSec)}`;
+    return `${g.length} drag`;
+  };
+  const rounds = ivRounds(ivs);
+  if (rounds) {
+    const s = rounds.map(group);
+    let out = s.every((x) => x === s[0]) ? `${rounds.length} runder à ${s[0]}` : `${rounds.length} runder (${s.join(' + ')})`;
+    const inner = rounds.flatMap((g) => g.slice(0, -1).map((x) => x.restSec)).filter(Boolean);
+    const between = rounds.slice(0, -1).map((g) => g[g.length - 1].restSec).filter(Boolean);
+    const p = [];
+    if (inner.length && inner.every((r) => r === inner[0])) p.push(`pause ${fmtDuration(inner[0])}`);
+    if (between.length && between.every((r) => r === between[0])) p.push(`${fmtDuration(between[0])} mellom runder`);
+    return p.length ? `${out} (${p.join(', ')})` : out;
+  }
+  let s = group(ivs);
   const rests = ivs.slice(0, -1).map((x) => x.restSec).filter(Boolean);
   if (rests.length && rests.every((r) => r === rests[0])) s += ` (pause ${fmtDuration(rests[0])})`;
   return s;
@@ -1377,32 +1415,57 @@ function intervalForm(en, i, cfg, unit, last) {
       <span class="session-btn-more">${sessions.length} ›</span></button>` : ''}
     ${last ? `<div class="row" style="margin:10px 0 4px"><button class="btn ghost sm" data-act="fill-last" data-e="${i}">↺ Som sist</button></div>` : ''}
     ${warmPart(en, i, 'warmup', 'Oppvarming', cfg, unit, last)}
-    <div class="iv-stepper">
-      <span>Antall intervaller</span>
-      <div class="stepper">
-        <button type="button" data-act="iv-count" data-e="${i}" data-d="-1" aria-label="Ett intervall færre" ${ivs.length ? '' : 'disabled'}>−</button>
-        <b>${ivs.length}</b>
-        <button type="button" data-act="iv-count" data-e="${i}" data-d="1" aria-label="Ett intervall til">+</button>
-      </div>
-    </div>
-    ${ivs.map((x, j) => {
-      const l = lastIvs[j] || lastIvs[lastIvs.length - 1] || {};
-      const xa = `data-e="${i}" data-iv="${j}"`;
-      const isLast = j === ivs.length - 1;
-      return `<div class="part-card iv-card">
-        <div class="part-head"><span class="set-no">${j + 1}</span><b>Drag ${j + 1}</b>
-          <span class="part-hint" data-hint="${i}-i${j}">${partHint(x.timeSec, x.distanceKm, x.speedKmh, cfg, unit)}</span>
-          <button class="del-btn" data-act="del-iv" data-e="${i}" data-iv="${j}" aria-label="Slett drag ${j + 1}">×</button></div>
-        <div class="part-grid">
-          <div><label class="field">Tid (min:sek)</label>${timePair('t', x.timeSec, xa, l.timeSec)}</div>
-          ${cfg.distance ? distField(xa, x.distanceKm, l.distanceKm, unit) : ''}
-          ${speedField(xa, x.speedKmh, l.speedKmh, cfg, cfg.speed === 'pace500' ? 'Tempo' : 'Fart')}
-          ${rates.map((f) => extraField(xa, f, x[f], l[f])).join('')}
-          ${isLast ? '' : `<div class="wide"><label class="field">Pause etter drag ${j + 1} (min:sek)</label>${timePair('r', x.restSec, xa, l.restSec)}</div>`}
+    ${(() => {
+      const rounds = ivs.some((x) => x.round > 1);
+      const nRounds = rounds ? Math.max(...ivs.map((x) => x.round || 1)) : 1;
+      const stepper = (label, act, extra, n, minus, plus) => `<div class="iv-stepper${extra.cls || ''}">
+        <span>${label}</span>
+        <div class="stepper">
+          <button type="button" data-act="${act}" data-e="${i}" ${extra.attr || ''} data-d="-1" aria-label="${minus}" ${n ? '' : 'disabled'}>−</button>
+          <b>${n}</b>
+          <button type="button" data-act="${act}" data-e="${i}" ${extra.attr || ''} data-d="1" aria-label="${plus}">+</button>
         </div></div>`;
-    }).join('')}
-    ${ivs.length > 1 ? `<button class="btn ghost sm" style="margin-top:10px" data-act="iv-copy" data-e="${i}">Kopier drag 1 til alle</button>` : ''}
-    ${!ivs.length ? `<button class="btn secondary block" style="margin-top:10px" data-act="iv-count" data-e="${i}" data-d="1">+ Legg til første intervall</button>` : ''}
+      const card = (x, j) => {
+        const l = lastIvs[j] || lastIvs[lastIvs.length - 1] || {};
+        const xa = `data-e="${i}" data-iv="${j}"`;
+        const isLast = j === ivs.length - 1;
+        const k = rounds ? ivs.slice(0, j + 1).filter((y) => y.round === x.round).length : j + 1;
+        const endOfRound = rounds && ivs[j + 1]?.round !== x.round;
+        const rest = isLast ? '' : endOfRound
+          ? `<div class="wide"><label class="field">Pause før runde ${x.round + 1} (min:sek)</label>${timePair('r', x.restSec, xa, l.restSec)}</div>`
+          : `<div class="wide"><label class="field">Pause etter drag ${k} (min:sek)</label>${timePair('r', x.restSec, xa, l.restSec)}</div>`;
+        return `<div class="part-card iv-card">
+          <div class="part-head"><span class="set-no">${k}</span><b>Drag ${k}</b>
+            <span class="part-hint" data-hint="${i}-i${j}">${partHint(x.timeSec, x.distanceKm, x.speedKmh, cfg, unit)}</span>
+            <button class="del-btn" data-act="del-iv" data-e="${i}" data-iv="${j}" aria-label="Slett drag ${k}${rounds ? ` i runde ${x.round}` : ''}">×</button></div>
+          <div class="part-grid">
+            <div><label class="field">Tid (min:sek)</label>${timePair('t', x.timeSec, xa, l.timeSec)}</div>
+            ${cfg.distance ? distField(xa, x.distanceKm, l.distanceKm, unit) : ''}
+            ${speedField(xa, x.speedKmh, l.speedKmh, cfg, cfg.speed === 'pace500' ? 'Tempo' : 'Fart')}
+            ${rates.map((f) => extraField(xa, f, x[f], l[f])).join('')}
+            ${rest}
+          </div></div>`;
+      };
+      if (!rounds) {
+        return `${stepper('Antall intervaller', 'iv-count', {}, ivs.length, 'Ett intervall færre', 'Ett intervall til')}
+          ${ivs.map(card).join('')}
+          ${ivs.length ? `<div class="row" style="margin-top:10px">
+            ${ivs.length > 1 ? `<button class="btn ghost sm" data-act="iv-copy" data-e="${i}">Kopier drag 1 til alle</button>` : ''}
+            <button class="btn ghost sm" data-act="iv-round" data-e="${i}" data-d="1">+ Legg til runde</button></div>` : ''}
+          ${!ivs.length ? `<button class="btn secondary block" style="margin-top:10px" data-act="iv-count" data-e="${i}" data-d="1">+ Legg til første intervall</button>` : ''}`;
+      }
+      let html = stepper('Antall runder', 'iv-round', {}, nRounds, 'Én runde færre', 'Én runde til');
+      for (let r = 1; r <= nRounds; r++) {
+        const idx = ivs.map((x, j) => (x.round === r ? j : -1)).filter((j) => j >= 0);
+        html += `<div class="round-block">
+          ${stepper(`Runde ${r}`, 'iv-round-count', { cls: ' round-head', attr: `data-r="${r}"` }, idx.length, `Ett drag færre i runde ${r}`, `Ett drag til i runde ${r}`)}
+          ${idx.map((j) => card(ivs[j], j)).join('')}
+        </div>`;
+      }
+      return html + `<div class="row" style="margin-top:10px">
+        <button class="btn ghost sm" data-act="iv-copy" data-e="${i}">Kopier drag 1 til resten av runden</button>
+        <button class="btn ghost sm" data-act="iv-round" data-e="${i}" data-d="1">+ Legg til runde</button></div>`;
+    })()}
     ${warmPart(en, i, 'cooldown', 'Nedtrapping', cfg, unit, last)}
     <div class="cardio-grid" style="margin-top:14px">
       ${cfg.fields.filter((f) => !CARDIO_FIELDS[f].rate).map((f) => extraField(`data-e="${i}"`, f, en[f], last?.en[f])).join('')}
@@ -1471,9 +1534,9 @@ function pastSessions(exId, purpose) {
 // Setter opp like mange tomme drag som i den valgte økta. Verdiene vises bare som hint (gravert)
 // til man trykker «Som sist».
 function applySession(en, src, wid) {
-  const n = (src.intervals || []).filter((x) => x.timeSec > 0 || x.distanceKm > 0).length;
-  if (!n) return;
-  en.intervals = Array.from({ length: n }, blankInterval);
+  const ivs = (src.intervals || []).filter((x) => x.timeSec > 0 || x.distanceKm > 0);
+  if (!ivs.length) return;
+  en.intervals = ivs.map((x) => (x.round ? { ...blankInterval(), round: x.round } : blankInterval()));
   en.warmup = null;
   en.cooldown = null;
   en.ref = wid; // hint i feltene og «Som sist» hentes fra denne økta
@@ -1566,6 +1629,7 @@ function cleanEntry(orig) {
   if (isIntervalType(en.purpose)) {
     // Intervalløkt: totalverdier og segmenter hører til utholdenhetsskjemaet
     en.intervals = (en.intervals || []).filter((x) => x.timeSec > 0 || x.distanceKm > 0 || x.speedKmh > 0);
+    normRounds(en);
     Object.assign(en, { segments: [], timeSec: null, distanceKm: null, speedKmh: null, incline: null, level: null });
     for (const k of ['warmup', 'cooldown']) {
       const p = en[k];
@@ -1963,7 +2027,7 @@ function tempoParts(en) {
   if (iv) {
     const ivs = (en.intervals || []).filter((x) => x.timeSec > 0 || x.distanceKm > 0);
     return iv.parts.map((p, j) => {
-      const part = { ...p, start: t, label: `Drag ${j + 1}` };
+      const part = { ...p, start: t, label: ivLabel(ivs, j) };
       t += (p.timeSec || 0) + (j < ivs.length - 1 ? ivs[j].restSec || 0 : 0);
       return part;
     });
@@ -2400,11 +2464,18 @@ function bestOverDistance(chain, D) {
   return { exact, est };
 }
 // Intervalloppsett, så bare like økter sammenlignes: «5 × 1 km», «10 × 1:00» eller «5 drag» når dragene er ulike
+// Med runder: «3 × 4 × 400 m» når rundene er like, ellers «4 × 400 m + 3 × 800 m»
 function intervalSetup(en) {
   const ivs = (en.intervals || []).filter((x) => x.timeSec > 0 || x.distanceKm > 0);
   if (!isIntervalType(en.purpose) || !ivs.length) return null;
-  const same = (k) => ivs.every((x) => x[k] > 0 && Math.abs(x[k] - ivs[0][k]) <= ivs[0][k] * 0.01);
   const ex = exById(en.exerciseId);
+  const rounds = ivRounds(ivs);
+  if (!rounds) return dragSetup(ivs, ex);
+  const s = rounds.map((g) => dragSetup(g, ex));
+  return s.every((x) => x === s[0]) ? `${rounds.length} × ${s[0]}` : s.join(' + ');
+}
+function dragSetup(ivs, ex) {
+  const same = (k) => ivs.every((x) => x[k] > 0 && Math.abs(x[k] - ivs[0][k]) <= ivs[0][k] * 0.01);
   if (same('distanceKm')) return `${ivs.length} × ${distLabel(ivs[0].distanceKm, ex)}`;
   if (same('timeSec')) return `${ivs.length} × ${fmtDuration(ivs[0].timeSec)}`;
   // Ulike drag (pyramide o.l.): beskriv dragene, f.eks. «1-2-3-2-1 min» eller «400-800-1200 m»
@@ -3437,7 +3508,7 @@ const MORE_ICONS = {
   mail: 'M4 6h16v12H4zM4 7l8 6 8-6',
   trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
 };
-const APP_VERSION = '3.7';
+const APP_VERSION = '3.8';
 // I iOS-appen vises appens eget versjonsnummer, i nettappen APP_VERSION
 const appVersion = () => window.nativeApp?.version || APP_VERSION;
 // E-post til kundestøtte med versjon og enhet fylt inn, så det er lettere å hjelpe
@@ -3711,7 +3782,7 @@ function exportXlsx(from, to) {
       const iv = intervalTotals(en);
       if (iv) {
         const ivs = (en.intervals || []).filter((x) => x.timeSec > 0 || x.distanceKm > 0);
-        iv.parts.forEach((p, j) => cRows.push(row(`Drag ${j + 1}`, p, ivs[j], { rest: j < ivs.length - 1 ? ivs[j].restSec : null })));
+        iv.parts.forEach((p, j) => cRows.push(row(ivLabel(ivs, j), p, ivs[j], { rest: j < ivs.length - 1 ? ivs[j].restSec : null })));
       }
       warm('cooldown', 'Nedtrapping');
     }
@@ -4030,17 +4101,63 @@ const actions = {
     renderEditor();
   },
   'del-iv': (el) => {
-    db.draft.entries[+el.dataset.e].intervals.splice(+el.dataset.iv, 1);
+    const en = db.draft.entries[+el.dataset.e];
+    en.intervals.splice(+el.dataset.iv, 1);
+    normRounds(en);
     save();
     renderEditor();
   },
   'iv-copy': (el) => {
     const en = db.draft.entries[+el.dataset.e];
-    const first = en.intervals[0];
-    en.intervals = en.intervals.map(() => ({ ...first }));
+    if (en.intervals.some((x) => x.round > 1)) {
+      // Første drag i hver runde kopieres til resten av runden (pausen før neste runde beholdes)
+      const firsts = {};
+      en.intervals = en.intervals.map((x, j, all) => {
+        if (!firsts[x.round]) return (firsts[x.round] = x);
+        const endRest = all[j + 1]?.round !== x.round ? x.restSec : firsts[x.round].restSec;
+        return { ...firsts[x.round], restSec: endRest };
+      });
+      toast('Drag 1 er kopiert til resten av hver runde');
+    } else {
+      const first = en.intervals[0];
+      en.intervals = en.intervals.map(() => ({ ...first }));
+      toast(`Drag 1 er kopiert til alle ${en.intervals.length} intervallene`);
+    }
     save();
     renderEditor();
-    toast(`Drag 1 er kopiert til alle ${en.intervals.length} intervallene`);
+  },
+  // Antall runder: ny runde starter med like mange tomme drag som runden før
+  'iv-round': (el) => {
+    const en = db.draft.entries[+el.dataset.e];
+    const ivs = (en.intervals ||= []);
+    if (!ivs.length) return;
+    if (+el.dataset.d > 0) {
+      if (!ivs.some((x) => x.round > 1)) ivs.forEach((x) => (x.round = 1));
+      const last = Math.max(...ivs.map((x) => x.round));
+      const n = ivs.filter((x) => x.round === last).length;
+      for (let k = 0; k < n; k++) ivs.push({ ...blankInterval(), round: last + 1 });
+    } else {
+      const last = Math.max(...ivs.map((x) => x.round || 1));
+      en.intervals = ivs.filter((x) => (x.round || 1) !== last);
+    }
+    normRounds(en);
+    save();
+    renderEditor();
+  },
+  // Antall drag i én runde
+  'iv-round-count': (el) => {
+    const en = db.draft.entries[+el.dataset.e];
+    const r = +el.dataset.r, ivs = en.intervals;
+    const lastIdx = ivs.map((x) => x.round).lastIndexOf(r);
+    if (lastIdx < 0) return;
+    if (+el.dataset.d > 0) {
+      // Det nye draget blir siste i runden og overtar pausen før neste runde
+      ivs.splice(lastIdx + 1, 0, { ...ivs[lastIdx], round: r });
+      if (ivs[lastIdx - 1]?.round === r) ivs[lastIdx].restSec = ivs[lastIdx - 1].restSec;
+    } else ivs.splice(lastIdx, 1);
+    normRounds(en);
+    save();
+    renderEditor();
   },
   'add-seg': (el) => {
     const en = db.draft.entries[+el.dataset.e];
