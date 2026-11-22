@@ -562,6 +562,31 @@ function cardioSummary(en, withPurpose = true) {
   if (seg && seg.count > 1) parts.push(`${seg.count} segmenter`);
   return parts.join(' · ');
 }
+// Kort beskrivelse av en øvelse i en økt, f.eks. «4 × 400 m», «Utholdenhet · 10 km» eller «3 × 5 × 105 kg»
+function shortSummary(en) {
+  const ex = exById(en.exerciseId);
+  if (ex.kind === 'cardio') {
+    const p = en.purpose || 'endurance';
+    const label = { interval: 'Intervall', easy: 'Rolig' }[p] || purposeLabel(p);
+    const st = cardioStats(en), cfg = exCfg(ex);
+    const main = intervalSetup(en) || (st?.distanceKm && cfg.distance ? fmtDist(st.distanceKm, unitOf(en, cfg)) : st?.timeSec ? fmtDuration(st.timeSec) : '');
+    return [label, main].filter(Boolean).join(' · ');
+  }
+  const st = strengthStats(en);
+  if (!st) return '';
+  if (en.mode === 'max') return `1RM-test: ${st.tested ? `${fmtNum(st.tested, 2)} kg` : 'ingen godkjente løft'}`;
+  const full = setsSummary(en.sets, exMeasure(ex));
+  if (!full.includes(',')) return full; // like sett: «3 × 5 × 105 kg»
+  const m = exMeasure(ex);
+  if (m === 'time') return `${st.sets} sett · lengste ${fmtDuration(st.maxSec)}`;
+  if (m === 'distance') return `${st.sets} sett${st.heaviest ? ` · opptil ${fmtNum(st.heaviest, 2)} kg` : ''}`;
+  // Ulike sett: antall sett og det tyngste settet (vekt × reps), eller flest reps for kroppsvekt
+  const done = en.sets.filter(setDone);
+  const weighted = done.filter((s) => s.weight > 0).length > st.sets / 2;
+  if (!weighted) return `${st.sets} sett · opptil ${st.maxReps} reps`;
+  const top = done.filter((s) => s.weight > 0).sort((a, b) => b.weight - a.weight || b.reps - a.reps)[0];
+  return `${st.sets} sett · ${fmtNum(top.weight, 2)} kg × ${top.reps}`;
+}
 function entrySummary(en) {
   if (exById(en.exerciseId).kind === 'cardio') return cardioSummary(en);
   return en.mode === 'max' ? maxSummary(en) : setsSummary(en.sets, exMeasure(exById(en.exerciseId)));
@@ -584,13 +609,17 @@ function toast(msg, ms = 2400, action) {
 }
 function openSheet(html) {
   const root = $('#sheet-root');
-  root.innerHTML = `<div class="sheet-backdrop" data-act="close-sheet"></div><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${html}</div>`;
+  // Bytter innholdet i et ark som allerede er åpent (f.eks. øvelsesvelger → ny øvelse): ingen ny animasjon
+  const swap = root.classList.contains('open') && root.querySelector('.sheet');
+  root.innerHTML = `<div class="sheet-backdrop${swap ? ' still' : ''}" data-act="close-sheet"></div><div class="sheet${swap ? ' still' : ''}" role="dialog" aria-modal="true"><div class="grab" aria-hidden="true"></div>${html}</div>`;
   root.classList.add('open');
+  document.body.classList.add('sheet-open');
   fitSheetToKeyboard();
 }
 function closeSheet() {
   const root = $('#sheet-root');
   root.classList.remove('open');
+  document.body.classList.remove('sheet-open');
   root.innerHTML = '';
   // Lukkes en bekreftelse uten svar, regnes det som «Avbryt»
   if (confirmResolve) { const r = confirmResolve; confirmResolve = null; r(false); }
@@ -634,6 +663,57 @@ function greeting() {
   const day = new Date().toLocaleDateString('nb-NO', { weekday: 'long', day: 'numeric', month: 'long' });
   return `${part}${name} · ${day}`;
 }
+
+// Bunnark: dra ned (fra toppen, eller når innholdet står helt øverst) for å lukke,
+// og siden bak skal ikke rulle når man drar i arket
+(function sheetGestures() {
+  const root = document.getElementById('sheet-root');
+  if (!root) return;
+  let sheet = null, scroller = null, x0 = 0, y0 = 0, t0 = 0, dy = 0, dragging = false;
+  // Nærmeste del av arket som faktisk kan rulle
+  const scrollableIn = (el, stop) => {
+    for (; el && el !== stop; el = el.parentElement) {
+      if (el.scrollHeight > el.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(el).overflowY)) return el;
+    }
+    return null;
+  };
+  root.addEventListener('touchstart', (e) => {
+    sheet = e.target.closest('.sheet');
+    scroller = sheet ? scrollableIn(e.target, sheet) : null;
+    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now(); dy = 0; dragging = false;
+  }, { passive: true });
+  root.addEventListener('touchmove', (e) => {
+    if (!sheet) { e.preventDefault(); return; } // bakgrunnen: ingen rulling av siden bak
+    const dx = e.touches[0].clientX - x0, d = e.touches[0].clientY - y0;
+    if (!dragging) {
+      if (Math.abs(dx) > Math.abs(d)) return; // sidelengs (f.eks. knapper som kan sveipes)
+      if (d > 8 && (!scroller || scroller.scrollTop <= 0)) {
+        dragging = true;
+        sheet.style.transition = 'none';
+      } else if (scroller) return; // vanlig rulling i lista
+      else { e.preventDefault(); return; }
+    }
+    e.preventDefault();
+    dy = Math.max(0, d - 8);
+    sheet.style.transform = `translateY(${dy}px)`;
+  }, { passive: false });
+  const end = () => {
+    if (sheet && dragging) {
+      const s = sheet, fast = dy / Math.max(1, Date.now() - t0) > 0.5;
+      if (dy > 110 || (fast && dy > 60)) {
+        s.style.transition = 'transform .18s ease-in';
+        s.style.transform = 'translateY(110%)';
+        setTimeout(() => { if (s.isConnected) closeSheet(); }, 170);
+      } else {
+        s.style.transition = 'transform .2s ease-out';
+        s.style.transform = '';
+      }
+    }
+    sheet = null; dragging = false;
+  };
+  root.addEventListener('touchend', end);
+  root.addEventListener('touchcancel', end);
+})();
 
 // Bunnark følger den synlige delen av skjermen, slik at de løftes over tastaturet
 // (iOS legger tastaturet over siden i stedet for å krympe den)
@@ -1328,21 +1408,15 @@ function cardioBody(en, i, ex, hist) {
   // Valgt tidligere økt (Velg tidligere økt) gir hintene, ellers den siste av samme type
   const last = (en.ref && same.find((h) => h.w.id === en.ref)) || same[same.length - 1];
 
-  let head = `<p class="chip-label" style="margin-top:10px">Type økt</p>
-  <div class="chips purpose" role="group" aria-label="Type økt">
-    ${PURPOSES.map((p) => `<button type="button" class="chip" data-act="purpose" data-e="${i}" data-v="${p.k}" aria-pressed="${purpose === p.k}">${p.l}</button>`).join('')}
+  // Type økt som én rad med korte navn
+  const SHORT = { endurance: 'Utholdenhet', interval: 'Intervall', threshold: 'Terskel', easy: 'Rolig' };
+  const head = `<div class="seg-toggle four purpose-toggle" role="group" aria-label="Type økt">
+    ${PURPOSES.map((p) => `<button type="button" data-act="purpose" data-e="${i}" data-v="${p.k}" aria-pressed="${purpose === p.k}" aria-label="${esc(p.l)}">${SHORT[p.k] || p.l}</button>`).join('')}
   </div>`;
-  if (cfg.distance) {
-    head += `<div class="unit-row"><span>Distanse i</span>
-      <div class="seg-toggle mini" role="group" aria-label="Distanseenhet">
-        <button type="button" data-act="dist-unit" data-e="${i}" data-v="m" aria-pressed="${unit === 'm'}">meter</button>
-        <button type="button" data-act="dist-unit" data-e="${i}" data-v="km" aria-pressed="${unit === 'km'}">km</button>
-      </div></div>`;
-  }
 
-  let prev = `Første ${esc(purposeLabel(purpose).toLowerCase())}-økt i denne øvelsen 🎉`;
+  let prev = `Første ${esc((SHORT[purpose] || purposeLabel(purpose)).toLowerCase())}-økt i denne øvelsen 🎉`;
   if (last) {
-    prev = `Forrige gang (${esc(shortDate(last.w.date))}): <b>${esc(cardioSummary(last.en, false))}</b>`;
+    prev = `Forrige gang (${esc(shortDate(last.w.date))}): <b>${esc(cardioLine(last.en))}</b>`;
     if (isIntervalType(purpose) && cfg.speed !== 'none') {
       const b = bestOf(same, 'speed');
       if (b) prev += ` · Raskest: <b>${esc(fmtSpeed(b.v, cfg))}</b>`;
@@ -1356,23 +1430,41 @@ function cardioBody(en, i, ex, hist) {
   return { prev, body: { head, main } };
 }
 
+// Snittpuls og makspuls i ett felt
+function hrPair(a, en, lastSt) {
+  return `<div><label class="field">Puls (snitt / maks)</label><div class="time-inputs">
+    <input inputmode="numeric" ${a} data-f="avgHr" value="${inputVal(en.avgHr)}" placeholder="${ph(lastSt?.avgHr, 0) || 'snitt'}" aria-label="Snittpuls">
+    <span class="muted">/</span>
+    <input inputmode="numeric" ${a} data-f="maxHr" value="${inputVal(en.maxHr)}" placeholder="${ph(lastSt?.maxHr, 0) || 'maks'}" aria-label="Makspuls">
+  </div></div>`;
+}
+// Verktøyrad: «Som sist» til venstre, meter/km til høyre
+function cardioTools(en, i, cfg, unit, last) {
+  if (!last && !cfg.distance) return '';
+  return `<div class="cardio-tools">
+    ${last ? `<button class="btn ghost sm" data-act="fill-last" data-e="${i}">↺ Som sist</button>` : '<span></span>'}
+    ${cfg.distance ? `<div class="seg-toggle mini" role="group" aria-label="Distanseenhet">
+      <button type="button" data-act="dist-unit" data-e="${i}" data-v="m" aria-pressed="${unit === 'm'}">meter</button>
+      <button type="button" data-act="dist-unit" data-e="${i}" data-v="km" aria-pressed="${unit === 'km'}">km</button>
+    </div>` : ''}
+  </div>`;
+}
 function enduranceForm(en, i, cfg, unit, last) {
   const lastSt = last ? cardioStats(last.en) : null;
   const a = `data-e="${i}"`;
   const segs = en.segments || [];
   const lastSegs = last?.en.segments || [];
   const rates = cfg.fields.filter((f) => CARDIO_FIELDS[f].rate);
-  return `${last ? `<div class="row" style="margin:10px 0 4px"><button class="btn ghost sm" data-act="fill-last" data-e="${i}">↺ Som sist</button></div>` : ''}
+  return `${cardioTools(en, i, cfg, unit, last)}
     <div class="cardio-grid">
       <div><label class="field">Total tid (min:sek)</label>${timePair('t', en.timeSec, a, lastSt?.timeSec)}</div>
       ${cfg.distance ? distField(a, en.distanceKm, lastSt?.distanceKm, unit) : ''}
       ${speedField(a, en.speedKmh, lastSt?.speed, cfg, cfg.speed === 'pace500' ? 'Snittempo' : 'Snittfart')}
       ${cfg.fields.map((f) => extraField(a, f, en[f], lastSt?.[f])).join('')}
-      <label class="field">Snittpuls<input inputmode="numeric" ${a} data-f="avgHr" value="${inputVal(en.avgHr)}" placeholder="${ph(lastSt?.avgHr, 0)}"></label>
-      <label class="field">Makspuls<input inputmode="numeric" ${a} data-f="maxHr" value="${inputVal(en.maxHr)}" placeholder="${ph(lastSt?.maxHr, 0)}"></label>
+      ${hrPair(a, en, lastSt)}
     </div>
 
-    <div class="subhead">Segmenter</div>
+    <div class="subhead">Segmenter <span class="small muted">(valgfritt)</span></div>
     ${segs.map((s, j) => {
       const l = lastSegs[j] || {};
       const sa = `data-e="${i}" data-g="${j}"`;
@@ -1413,7 +1505,7 @@ function intervalForm(en, i, cfg, unit, last) {
   return `${sessions.length ? `<button type="button" class="session-btn" data-act="iv-pick" data-e="${i}">
       <span>${picked ? `<small>Tidligere gjennomførte økter</small><b>${esc(setupName(en.exerciseId, en.purpose, picked.key) || picked.key)}</b>` : '<b>Tidligere gjennomførte økter</b>'}</span>
       <span class="session-btn-more">${sessions.length} ›</span></button>` : ''}
-    ${last ? `<div class="row" style="margin:10px 0 4px"><button class="btn ghost sm" data-act="fill-last" data-e="${i}">↺ Som sist</button></div>` : ''}
+    ${cardioTools(en, i, cfg, unit, last)}
     <div class="seg-toggle" role="group" aria-label="Oppsett">
       <button type="button" data-act="iv-mode" data-e="${i}" data-v="flat" aria-pressed="${!ivs.some((x) => x.round > 1)}">Kun drag</button>
       <button type="button" data-act="iv-mode" data-e="${i}" data-v="rounds" aria-pressed="${ivs.some((x) => x.round > 1)}">Drag i runder</button>
@@ -1435,9 +1527,12 @@ function intervalForm(en, i, cfg, unit, last) {
         const isLast = j === ivs.length - 1;
         const k = rounds ? ivs.slice(0, j + 1).filter((y) => y.round === x.round).length : j + 1;
         const endOfRound = rounds && ivs[j + 1]?.round !== x.round;
+        // Pausen fyller ledig plass ved siden av siste felt, ellers hele raden
+        const nFields = 1 + (cfg.distance ? 1 : 0) + (cfg.speed === 'pace500' ? 1 : cfg.speed === 'kmh' ? (cfg.pace ? 2 : 1) : 0) + rates.length;
+        const restCls = nFields % 2 ? '' : ' class="wide"';
         const rest = isLast ? '' : endOfRound
-          ? `<div class="wide"><label class="field">Pause før runde ${x.round + 1} (min:sek)</label>${timePair('r', x.restSec, xa, l.restSec)}</div>`
-          : `<div class="wide"><label class="field">Pause etter drag ${k} (min:sek)</label>${timePair('r', x.restSec, xa, l.restSec)}</div>`;
+          ? `<div${restCls}><label class="field">Pause før runde ${x.round + 1}</label>${timePair('r', x.restSec, xa, l.restSec)}</div>`
+          : `<div${restCls}><label class="field">Pause etter</label>${timePair('r', x.restSec, xa, l.restSec)}</div>`;
         return `<div class="part-card iv-card">
           <div class="part-head"><span class="set-no">${k}</span><b>Drag ${k}</b>
             <span class="part-hint" data-hint="${i}-i${j}">${partHint(x.timeSec, x.distanceKm, x.speedKmh, cfg, unit)}</span>
@@ -1470,8 +1565,7 @@ function intervalForm(en, i, cfg, unit, last) {
     ${warmPart(en, i, 'cooldown', 'Nedtrapping', cfg, unit, last)}
     <div class="cardio-grid" style="margin-top:14px">
       ${cfg.fields.filter((f) => !CARDIO_FIELDS[f].rate).map((f) => extraField(`data-e="${i}"`, f, en[f], last?.en[f])).join('')}
-      <label class="field">Snittpuls<input inputmode="numeric" data-e="${i}" data-f="avgHr" value="${inputVal(en.avgHr)}" placeholder="${ph(last ? cardioStats(last.en)?.avgHr : null, 0)}"></label>
-      <label class="field">Makspuls<input inputmode="numeric" data-e="${i}" data-f="maxHr" value="${inputVal(en.maxHr)}" placeholder="${ph(last ? cardioStats(last.en)?.maxHr : null, 0)}"></label>
+      ${hrPair(`data-e="${i}"`, en, last ? cardioStats(last.en) : null)}
     </div>
     <p class="derived" data-derived="${i}">${derivedText(en)}</p>`;
 }
@@ -1653,6 +1747,7 @@ function highlightEntries(indexes) {
 
 async function saveWorkout() {
   const d = db.draft;
+  if (!d) return; // f.eks. dobbelttrykk på «Lagre» etter at økta allerede er lagret
   const cleaned = d.entries.map(cleanEntry);
   const entries = cleaned.filter(Boolean);
   // Øvelser uten verdier blir ikke lagret – si fra i stedet for å fjerne dem i stillhet
@@ -1876,7 +1971,7 @@ function openNewExerciseForm(name, onDone, existing) {
 
       <button class="btn primary block big" type="submit">${existing ? 'Lagre' : 'Lag øvelse'}</button>
     </form></div>`);
-  setTimeout(() => $('#sheet-root input[name="name"]')?.focus(), 50);
+  // Ingen automatisk fokus: tastaturet som spretter opp mens arket glir inn, får det til å hoppe (særlig i iPhone-appen)
 }
 // Leser valgene i øvelsesskjemaet: tid/reps for styrke, oppsett for kondisjon
 function formExerciseProps(form, kind) {
@@ -2805,7 +2900,7 @@ function progressList(used) {
     const hist = historyFor(e.id);
     const last = hist[hist.length - 1];
     return `<a class="ex-option" style="text-decoration:none;color:inherit" href="#/statistikk/${encodeURIComponent(e.id)}">
-      <span>${q ? markMatch(e.name, q) : esc(e.name)}<br><span class="small muted">${last ? esc(entrySummary(last.en)) : ''}</span></span>
+      <span>${q ? markMatch(e.name, q) : esc(e.name)}<br><span class="small muted">${last ? esc(shortSummary(last.en)) : ''}</span></span>
       <span class="kind">${used.get(e.id)}×</span></a>`;
   };
   let html = '';
@@ -3190,10 +3285,12 @@ function renderStats(exId) {
   let hist = allHist;
   if (ex.kind === 'cardio') {
     const used = PURPOSES.filter((p) => allHist.some((h) => h.en.purpose === p.k));
-    let pf = statsUI.purpose[exId] || 'all';
+    // Standard: den typen man trener mest av med denne øvelsen (likt: den som står først)
+    const mostUsed = used.map((p) => [p.k, allHist.filter((h) => h.en.purpose === p.k).length]).sort((a, b) => b[1] - a[1])[0]?.[0];
+    let pf = statsUI.purpose[exId] || mostUsed || 'all';
     if (pf !== 'all' && !used.some((p) => p.k === pf)) pf = 'all';
     if (used.length) {
-      filterHtml = `<p class="chip-label">Type økt</p><div class="chips" role="group" aria-label="Type økt">
+      filterHtml = `<p class="chip-label">Type økt</p><div class="chips scroll" role="group" aria-label="Type økt">
         <button class="chip" data-act="purpose-filter" data-ex="${esc(exId)}" data-v="all" aria-pressed="${pf === 'all'}">Alle økter</button>
         ${used.map((p) => `<button class="chip" data-act="purpose-filter" data-ex="${esc(exId)}" data-v="${p.k}" aria-pressed="${pf === p.k}">${p.l}</button>`).join('')}
       </div>`;
@@ -3207,7 +3304,7 @@ function renderStats(exId) {
       if (setups.length > 1) {
         // Standard: mest brukte oppsett hvis det er gjentatt, ellers alle
         const sel = statsUI.setup[exId] === 'all' || counts.has(statsUI.setup[exId]) ? statsUI.setup[exId] : counts.get(setups[0]) > 1 ? setups[0] : 'all';
-        filterHtml += `<p class="chip-label">Oppsett</p><div class="chips" role="group" aria-label="Oppsett">
+        filterHtml += `<p class="chip-label">Oppsett</p><div class="chips scroll" role="group" aria-label="Oppsett">
           ${[['all', 'Alle'], ...setups.map((s) => [s, setupName(exId, pf, s) || s])].map(([v, l]) => `<button class="chip" data-act="iv-setup" data-ex="${esc(exId)}" data-v="${esc(v)}" aria-pressed="${v === sel}">${esc(l)}</button>`).join('')}
         </div>`;
         if (sel !== 'all') hist = hist.filter((h) => intervalSetup(h.en) === sel);
@@ -3242,53 +3339,164 @@ function renderStats(exId) {
   if (purposeFilter === 'endurance' || purposeFilter === 'easy') metrics = metrics.filter((m) => ['distanceKm', 'speed', 'paceKm', 'pace500', 'hrEff'].includes(m.k));
   if (!metrics.length) { view().innerHTML = filterHtml + `<div class="empty"><p>Ingen data å vise for dette utvalget.</p></div>`; return; }
   let mk = statsUI.metric[exId];
-  if (!metrics.some((m) => m.k === mk)) mk = metrics[0]?.k;
+  // Standard: måltallet med flest registreringer (likt: det som står først)
+  if (!metrics.some((m) => m.k === mk)) mk = metrics.map((m) => [m.k, hist.filter((h) => h.st[m.k] != null).length]).sort((a, b) => b[1] - a[1])[0]?.[0];
   let metric = metrics.find((m) => m.k === mk);
   if (mk === 'repsAt') metric = { ...metric, hint: `Flest reps i ett sett med ${weightLabel(selWeight).toLowerCase()}` };
 
-  let html = filterHtml + `<p class="chip-label">Vis</p><div class="chips" role="group" aria-label="Måltall">
-    ${metrics.map((m) => `<button class="chip metric-chip" data-act="metric" data-ex="${esc(exId)}" data-k="${m.k}" aria-pressed="${m.k === mk}">${m.label}</button>`).join('')}
-  </div>`;
-  if (mk === 'repsAt') {
-    html += `<p class="chip-label">Vekt</p><div class="chips" role="group" aria-label="Vekt">
-      ${weights.map((w) => `<button class="chip" data-act="stats-weight" data-ex="${esc(exId)}" data-v="${w}" aria-pressed="${w === selWeight}">${weightLabel(w)}</button>`).join('')}
-    </div>`;
-  }
+  const metricChips = metrics.map((m) => `<button class="chip metric-chip" data-act="metric" data-ex="${esc(exId)}" data-k="${m.k}" aria-pressed="${m.k === mk}">${m.label}</button>`).join('');
+  if (ex.kind === 'cardio') { renderCardioStats(ex, hist, filterHtml, metric, mk, metricChips); return; }
+  const weightChips = mk === 'repsAt' && weights.length > 1 ? `<div class="chips scroll metric-row weight-row" role="group" aria-label="Vekt">
+    ${weights.map((w) => `<button class="chip" data-act="stats-weight" data-ex="${esc(exId)}" data-v="${w}" aria-pressed="${w === selWeight}">${weightLabel(w)}</button>`).join('')}
+  </div>` : '';
+  renderStrengthStats(ex, allHist, hist, metric, mk, metricChips, weightChips);
+}
 
+// Fremgang for en øvelse: oppsummering, graf med måltall og nøkkeltall, rekorder og en kompakt øktliste.
+// o: { tiles, chipsAfter, records, title(h), line(h) } – det som er ulikt for styrke og kondisjon
+function renderExStats(ex, hist, filterHtml, metric, mk, metricChips, o) {
   const pts = hist.filter((h) => h.st[mk] != null);
   const first = pts[0], lastP = pts[pts.length - 1];
   const best = bestOf(pts, mk, metric.lower);
   const fm = (v) => fmtMetric(metric, v);
   const change = pts.length > 1 ? lastP.st[mk] - first.st[mk] : null;
   const pct = change != null && first.st[mk] ? (change / first.st[mk]) * 100 : null;
+  const day = (d) => fmtDate(d, { day: 'numeric', month: 'short', year: 'numeric' });
+  const tile = ([l, v]) => `<div class="tile kpi"><div class="l">${l}</div><div class="v">${v}</div></div>`;
 
+  let html = filterHtml + `<div class="tiles ex-sum">${o.tiles.map(tile).join('')}</div>`;
   html += `<section class="card">
     <div class="chart-title">${metric.label} (${metric.unit})</div>
     <div class="chart-sub">${metric.hint ? esc(metric.hint) + ' · ' : ''}${pts.length} ${pts.length === 1 ? 'registrering' : 'registreringer'}</div>
+    <div class="chips scroll metric-row" role="group" aria-label="Måltall">${metricChips}</div>
+    ${o.chipsAfter || ''}
     <div class="chart-wrap" id="ex-chart"></div>
-  </section>
-  <div class="pr-tiles">
-    <div class="tile"><div class="l">Beste</div><div class="v">${fm(best.v)} <span class="small muted">${metric.unit}</span></div><div class="l">${esc(fmtDate(best.h.w.date, { day: 'numeric', month: 'short', year: 'numeric' }))}</div></div>
-    <div class="tile"><div class="l">Siste</div><div class="v">${fm(lastP.st[mk])} <span class="small muted">${metric.unit}</span></div><div class="l">${esc(fmtDate(lastP.w.date, { day: 'numeric', month: 'short', year: 'numeric' }))}</div></div>
-    <div class="tile"><div class="l">Endring siden start</div><div class="v">${change == null ? '–' : (change > 0 ? '+' : change < 0 ? '−' : '') + fm(Math.abs(change))}</div><div class="l">${pct != null ? (pct > 0 ? '+' : '') + fmtNum(pct, 0) + ' %' : 'Trenger flere økter'}</div></div>
-    <div class="tile"><div class="l">Antall økter</div><div class="v">${hist.length}</div><div class="l">Første: ${esc(fmtDate(hist[0].w.date, { day: 'numeric', month: 'short', year: 'numeric' }))}</div></div>
-  </div>`;
+    <div class="ex-stats">
+      <div><span>Beste</span><b>${fm(best.v)}</b><small>${esc(day(best.h.w.date))}</small></div>
+      <div><span>Siste</span><b>${fm(lastP.st[mk])}</b><small>${esc(day(lastP.w.date))}</small></div>
+      <div><span>Endring</span><b>${change == null ? '–' : (change > 0 ? '+' : change < 0 ? '−' : '') + fm(Math.abs(change))}</b><small>${pct != null ? (pct > 0 ? '+' : '') + fmtNum(pct, 0) + ' % siden start' : 'Trenger flere økter'}</small></div>
+    </div>
+  </section>`;
+  html += o.records || '';
 
-  if (ex.kind === 'cardio') html += cardioRecordsCard(ex);
-  html += `<h2 class="section-title">Alle registreringer</h2><section class="card"><table class="data"><thead><tr><th>Dato</th><th>Detaljer</th><th class="num">${esc(metric.label)}</th></tr></thead><tbody>
-    ${[...hist].reverse().map((h) => `<tr>
-      <td><a href="#/okt/${encodeURIComponent(h.w.id)}" style="color:inherit">${esc(fmtDate(h.w.date, { day: 'numeric', month: 'short' }))}</a><div class="sub">${h.w.date.slice(0, 4)}</div></td>
-      <td>${esc(entrySummary(h.en))}${h.en.note ? `<div class="sub">📝 ${esc(h.en.note)}</div>` : ''}</td>
-      <td class="num">${h.st[mk] != null ? fm(h.st[mk]) : '–'}${best && h === best.h ? ' <span class="pr-tag">PR</span>' : ''}</td></tr>`).join('')}
-  </tbody></table></section>`;
+  // Øktene, nyeste først, med verdien for valgt måltall til høyre
+  const SHOW = 8, thisYear = new Date().getFullYear();
+  const rows = [...hist].reverse().map((h, n) => {
+    const d = dateObj(h.w.date);
+    const ln = o.line(h);
+    return `<li${n >= SHOW ? ' class="more"' : ''}><a class="ex-row" href="#/okt/${encodeURIComponent(h.w.id)}">
+      <span class="ex-date"><b>${d.getDate()}</b><small>${esc(d.toLocaleDateString('nb-NO', { month: 'short' }))}${d.getFullYear() !== thisYear ? ` ${d.getFullYear()}` : ''}</small></span>
+      <span class="ex-main"><b>${esc(o.title(h))}</b>${ln ? `<small>${esc(ln)}</small>` : ''}${h.en.note ? `<small class="ex-note">📝 ${esc(h.en.note)}</small>` : ''}</span>
+      <span class="ex-val">${h.st[mk] != null ? `<b>${fm(h.st[mk])}</b><small>${esc(metric.unit)}</small>` : '<b>–</b>'}${best && h === best.h ? '<span class="pr-tag">PR</span>' : ''}</span>
+    </a></li>`;
+  }).join('');
+  html += `<h2 class="section-title">Økter</h2><section class="card ex-list-card">
+    <ul class="ex-list">${rows}</ul>
+    ${hist.length > SHOW ? `<button class="btn ghost sm block" data-act="ex-all">Vis alle ${hist.length} økter</button>` : ''}
+  </section>`;
 
   view().innerHTML = html;
-  drawLineChart($('#ex-chart'), pts.map((h) => ({
-    t: dateObj(h.w.date).getTime(),
-    y: h.st[mk] * (metric.scale || 1),
-    pr: h === best.h,
-    tip: `<b>${fm(h.st[mk])} ${metric.unit}</b><br>${esc(fmtDate(h.w.date, { day: 'numeric', month: 'short', year: 'numeric' }))}<br>${esc(entrySummary(h.en))}`,
-  })), metric);
+  drawLineChart($('#ex-chart'), pts.map((h) => {
+    const ln = o.line(h);
+    return {
+      t: dateObj(h.w.date).getTime(),
+      y: h.st[mk] * (metric.scale || 1),
+      pr: h === best.h,
+      tip: `<b>${fm(h.st[mk])} ${metric.unit}</b><br>${esc(day(h.w.date))}<br>${esc(o.title(h))}${ln ? ` · ${esc(ln)}` : ''}`,
+    };
+  }), metric);
+  // Valgt knapp synlig i radene som kan sveipes
+  for (const row of document.querySelectorAll('.chips.scroll')) {
+    const on = row.querySelector('[aria-pressed="true"]');
+    if (on) row.scrollLeft = on.offsetLeft - row.clientWidth / 2 + on.offsetWidth / 2;
+  }
+}
+const hoursText = (s) => (s >= 3600 ? `${Math.floor(s / 3600)} t ${Math.round((s % 3600) / 60)} min` : `${Math.round(s / 60)} min`);
+const unitSmall = (s) => s.replace(/ (t|min|km|kg|tonn|m)$/g, '<span class="small muted"> $1</span>').replace(/ t /, '<span class="small muted"> t</span> ');
+
+// Kort linje for en kondisjonsøkt: «10 × 400 m · 3:35 min/km» eller «8 km · 37:02 · 4:38 min/km»
+function cardioLine(en) {
+  const ex = exById(en.exerciseId), cfg = exCfg(ex);
+  const st = cardioStats(en), unit = unitOf(en, cfg), iv = intervalTotals(en);
+  if (iv) return [intervalSetup(en), iv.speed && cfg.speed !== 'none' ? speedText(iv.speed, ex) : ''].filter(Boolean).join(' · ');
+  return [st?.distanceKm && cfg.distance ? fmtDist(st.distanceKm, unit) : '', st?.timeSec ? fmtDuration(st.timeSec) : '', st?.speed && cfg.speed !== 'none' ? speedText(st.speed, ex) : ''].filter(Boolean).join(' · ');
+}
+function renderCardioStats(ex, hist, filterHtml, metric, mk, metricChips) {
+  const cfg = exCfg(ex);
+  const totKm = hist.reduce((a, h) => a + (h.st.distanceKm || 0), 0);
+  const totSec = hist.reduce((a, h) => a + (cardioTotalSec(h.en) || 0), 0);
+  const line = cardioLine;
+  renderExStats(ex, hist, filterHtml, metric, mk, metricChips, {
+    tiles: [['Økter', hist.length], ...(cfg.distance ? [['Distanse', unitSmall(`${fmtNum(totKm, totKm < 100 ? 1 : 0)} km`)]] : []), ['Tid', totSec ? unitSmall(hoursText(totSec)) : '–']],
+    records: cardioRecordsCard(ex),
+    title: (h) => purposeLabel(h.en.purpose || 'endurance'),
+    line: (h) => line(h.en),
+  });
+}
+
+// Rekorder for en styrkeøvelse: tyngste sett, flest reps, mest løftet i én økt, 1RM osv.
+function strengthRecordsCard(ex, hist) {
+  const measure = exMeasure(ex);
+  const when = (h) => `<a href="#/okt/${encodeURIComponent(h.w.id)}">${esc(fmtDate(h.w.date, { day: 'numeric', month: 'short', year: 'numeric' }))}</a>`;
+  const top = (val) => {
+    let b = null;
+    for (const h of hist) { const v = val(h); if (v && (!b || v.v > b.v)) b = { ...v, h }; }
+    return b;
+  };
+  const doneSets = (h) => ((h.en.mode || 'reps') === 'reps' ? (h.en.sets || []).filter(setDone) : []);
+  const kg = (v) => `${fmtNum(v, 2)} kg`;
+  const recs = [];
+  if (measure === 'reps') {
+    // Tyngste sett (flest reps ved lik vekt), flest reps i ett sett (tyngst ved likt) og mest løftet i én økt
+    const heavy = top((h) => { const s = doneSets(h).filter((x) => x.weight > 0).sort((a, b) => b.weight - a.weight || b.reps - a.reps)[0]; return s && { v: s.weight + s.reps / 1000, txt: `${kg(s.weight)} × ${s.reps}` }; });
+    if (heavy) recs.push(['Tyngste sett', heavy]);
+    const reps = top((h) => { const s = [...doneSets(h)].sort((a, b) => b.reps - a.reps || (b.weight || 0) - (a.weight || 0))[0]; return s && { v: s.reps + (s.weight || 0) / 10000, txt: s.weight ? `${s.reps} × ${kg(s.weight)}` : `${s.reps} reps` }; });
+    if (reps) recs.push(['Flest reps i ett sett', reps]);
+    const vol = top((h) => h.st.volume && { v: h.st.volume, txt: kg(h.st.volume) });
+    if (vol) recs.push(['Mest løftet i én økt', vol]);
+  }
+  const tested = top((h) => h.st.tested && { v: h.st.tested, txt: kg(h.st.tested) });
+  if (tested) recs.push(['1RM (testet)', tested]);
+  if (measure === 'distance') {
+    const w = top((h) => h.st.carryWeight && { v: h.st.carryWeight, txt: kg(h.st.carryWeight) });
+    if (w) recs.push(['Tyngste bæring', w]);
+    const m = top((h) => h.st.maxMeters && { v: h.st.maxMeters, txt: `${fmtNum(h.st.maxMeters, 0)} m` });
+    if (m) recs.push(['Lengste drag', m]);
+  }
+  if (measure === 'time') {
+    const s = top((h) => h.st.maxSec && { v: h.st.maxSec, txt: fmtDuration(h.st.maxSec) });
+    if (s) recs.push(['Lengste hold', s]);
+    const w = top((h) => h.st.heaviest && { v: h.st.heaviest, txt: kg(h.st.heaviest) });
+    if (w) recs.push(['Tyngste vekt', w]);
+  }
+  if (!recs.length) return '';
+  return `<h2 class="section-title">Rekorder</h2><section class="card"><ul class="report-recs rec-list">
+    ${recs.map(([l, r]) => `<li><span>${esc(l)}<small>${when(r.h)}</small></span><b>${esc(r.txt)}</b></li>`).join('')}
+  </ul></section>`;
+}
+
+function renderStrengthStats(ex, allHist, hist, metric, mk, metricChips, weightChips) {
+  const measure = exMeasure(ex);
+  const sum = (k) => hist.reduce((a, h) => a + (h.st[k] || 0), 0);
+  let third;
+  if (measure === 'time') third = ['Total tid', sum('totalSec') ? unitSmall(hoursText(sum('totalSec'))) : '–'];
+  else if (measure === 'distance') third = ['Total lengde', unitSmall(`${fmtNum(sum('totalMeters'), 0)} m`)];
+  else if (hist.filter((h) => h.st.heaviest).length <= hist.length / 2) third = ['Reps totalt', fmtNum(sum('totalReps'), 0)]; // mest kroppsvekt
+  else { const v = sum('volume'); third = ['Løftet totalt', v ? unitSmall(v >= 10000 ? `${fmtNum(v / 1000, 1)} tonn` : `${fmtNum(v, 0)} kg`) : '–']; }
+  const line = (h) => {
+    const st = h.st;
+    if (h.en.mode === 'max') return `${st.sets} forsøk`;
+    if (measure === 'time') return st.totalSec ? `totalt ${fmtDuration(st.totalSec)}` : '';
+    if (measure === 'distance') return st.totalMeters ? `totalt ${fmtNum(st.totalMeters, 0)} m` : '';
+    return [st.totalReps ? `${st.totalReps} reps` : '', st.volume ? `${fmtNum(st.volume, 0)} kg totalt` : ''].filter(Boolean).join(' · ');
+  };
+  renderExStats(ex, hist, '', metric, mk, metricChips, {
+    tiles: [['Økter', hist.length], ['Sett', sum('sets')], third],
+    chipsAfter: weightChips,
+    records: strengthRecordsCard(ex, allHist),
+    title: (h) => (h.en.mode === 'max' ? `1RM-test: ${h.st.tested ? `${fmtNum(h.st.tested, 2)} kg` : 'ingen godkjente løft'}` : setsSummary(h.en.sets, measure)),
+    line,
+  });
 }
 
 /* ---------- Diagrammer (ren SVG, fungerer offline) ---------- */
@@ -3509,7 +3717,7 @@ const MORE_ICONS = {
   mail: 'M4 6h16v12H4zM4 7l8 6 8-6',
   trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
 };
-const APP_VERSION = '3.9';
+const APP_VERSION = '4.0';
 // I iOS-appen vises appens eget versjonsnummer, i nettappen APP_VERSION
 const appVersion = () => window.nativeApp?.version || APP_VERSION;
 // E-post til kundestøtte med versjon og enhet fylt inn, så det er lettere å hjelpe
@@ -4068,6 +4276,7 @@ const actions = {
     renderEditor();
   },
   'iv-pick': (el) => openSessionPicker(+el.dataset.e),
+  'ex-all': (el) => { el.closest('section').classList.add('show-all'); el.remove(); },
   'setup-name': (el) => openSetupName(+el.dataset.e, el.dataset.s),
   'setup-name-save': (el) => {
     const en = db.draft.entries[+el.dataset.e];
@@ -4279,7 +4488,8 @@ const actions = {
     for (const en of w.entries) {
       const ex = exById(en.exerciseId);
       const n = { id: uid(), exerciseId: en.exerciseId, note: '' };
-      if (ex.kind === 'cardio') Object.assign(n, blankCardio(), { purpose: en.purpose || 'endurance', intervals: (en.intervals || []).map(blankInterval) });
+      // Samme oppsett (antall drag og runder); verdiene fra økta vises som hint
+      if (ex.kind === 'cardio') Object.assign(n, blankCardio(), { purpose: en.purpose || 'endurance', intervals: (en.intervals || []).map((x) => (x.round ? { ...blankInterval(), round: x.round } : blankInterval())), ref: isIntervalType(en.purpose) ? w.id : undefined });
       else if (en.mode === 'max') Object.assign(n, { mode: 'max', sets: [], attempts: [] });
       else Object.assign(n, { mode: 'reps', sets: en.sets.map(() => ({ weight: null, reps: null })), attempts: [] });
       db.draft.entries.push(n);
