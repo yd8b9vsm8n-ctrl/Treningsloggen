@@ -1,6 +1,6 @@
 // Service worker: gjør at appen fungerer uten nett.
 // Øk versjonsnummeret når du publiserer en ny versjon.
-const CACHE = 'treningslogg-v29';
+const CACHE = 'treningslogg-v30';
 const ASSETS = [
   './', './index.html', './styles.css', './native.js', './legal.js', './xlsx.js', './app.js', './manifest.webmanifest',
   './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',

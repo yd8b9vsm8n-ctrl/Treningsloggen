@@ -1414,6 +1414,10 @@ function intervalForm(en, i, cfg, unit, last) {
       <span>${picked ? `<small>Tidligere gjennomførte økter</small><b>${esc(setupName(en.exerciseId, en.purpose, picked.key) || picked.key)}</b>` : '<b>Tidligere gjennomførte økter</b>'}</span>
       <span class="session-btn-more">${sessions.length} ›</span></button>` : ''}
     ${last ? `<div class="row" style="margin:10px 0 4px"><button class="btn ghost sm" data-act="fill-last" data-e="${i}">↺ Som sist</button></div>` : ''}
+    <div class="seg-toggle" role="group" aria-label="Oppsett">
+      <button type="button" data-act="iv-mode" data-e="${i}" data-v="flat" aria-pressed="${!ivs.some((x) => x.round > 1)}">Kun drag</button>
+      <button type="button" data-act="iv-mode" data-e="${i}" data-v="rounds" aria-pressed="${ivs.some((x) => x.round > 1)}">Drag i runder</button>
+    </div>
     ${warmPart(en, i, 'warmup', 'Oppvarming', cfg, unit, last)}
     ${(() => {
       const rounds = ivs.some((x) => x.round > 1);
@@ -1421,7 +1425,7 @@ function intervalForm(en, i, cfg, unit, last) {
       const stepper = (label, act, extra, n, minus, plus) => `<div class="iv-stepper${extra.cls || ''}">
         <span>${label}</span>
         <div class="stepper">
-          <button type="button" data-act="${act}" data-e="${i}" ${extra.attr || ''} data-d="-1" aria-label="${minus}" ${n ? '' : 'disabled'}>−</button>
+          <button type="button" data-act="${act}" data-e="${i}" ${extra.attr || ''} data-d="-1" aria-label="${minus}" ${n > (extra.min || 0) ? '' : 'disabled'}>−</button>
           <b>${n}</b>
           <button type="button" data-act="${act}" data-e="${i}" ${extra.attr || ''} data-d="1" aria-label="${plus}">+</button>
         </div></div>`;
@@ -1449,22 +1453,19 @@ function intervalForm(en, i, cfg, unit, last) {
       if (!rounds) {
         return `${stepper('Antall intervaller', 'iv-count', {}, ivs.length, 'Ett intervall færre', 'Ett intervall til')}
           ${ivs.map(card).join('')}
-          ${ivs.length ? `<div class="row" style="margin-top:10px">
-            ${ivs.length > 1 ? `<button class="btn ghost sm" data-act="iv-copy" data-e="${i}">Kopier drag 1 til alle</button>` : ''}
-            <button class="btn ghost sm" data-act="iv-round" data-e="${i}" data-d="1">+ Legg til runde</button></div>` : ''}
+          ${ivs.length > 1 ? `<button class="btn ghost sm" style="margin-top:10px" data-act="iv-copy" data-e="${i}">Kopier drag 1 til alle</button>` : ''}
           ${!ivs.length ? `<button class="btn secondary block" style="margin-top:10px" data-act="iv-count" data-e="${i}" data-d="1">+ Legg til første intervall</button>` : ''}`;
       }
-      let html = stepper('Antall runder', 'iv-round', {}, nRounds, 'Én runde færre', 'Én runde til');
+      let html = stepper('Antall runder', 'iv-round', { min: 2 }, nRounds, 'Én runde færre', 'Én runde til');
       for (let r = 1; r <= nRounds; r++) {
         const idx = ivs.map((x, j) => (x.round === r ? j : -1)).filter((j) => j >= 0);
         html += `<div class="round-block">
-          ${stepper(`Runde ${r}`, 'iv-round-count', { cls: ' round-head', attr: `data-r="${r}"` }, idx.length, `Ett drag færre i runde ${r}`, `Ett drag til i runde ${r}`)}
+          ${stepper(`Runde ${r}`, 'iv-round-count', { cls: ' round-head', attr: `data-r="${r}"`, min: 1 }, idx.length, `Ett drag færre i runde ${r}`, `Ett drag til i runde ${r}`)}
           ${idx.map((j) => card(ivs[j], j)).join('')}
+          ${idx.length > 1 ? `<button class="btn ghost sm" style="margin-top:10px" data-act="iv-copy" data-e="${i}" data-r="${r}">Kopier drag 1 til alle i runde ${r}</button>` : ''}
         </div>`;
       }
-      return html + `<div class="row" style="margin-top:10px">
-        <button class="btn ghost sm" data-act="iv-copy" data-e="${i}">Kopier drag 1 til resten av runden</button>
-        <button class="btn ghost sm" data-act="iv-round" data-e="${i}" data-d="1">+ Legg til runde</button></div>`;
+      return html + `<button class="btn secondary block" style="margin-top:14px" data-act="iv-copy-round" data-e="${i}">Kopier oppsettet i runde 1 til alle rundene</button>`;
     })()}
     ${warmPart(en, i, 'cooldown', 'Nedtrapping', cfg, unit, last)}
     <div class="cardio-grid" style="margin-top:14px">
@@ -3508,7 +3509,7 @@ const MORE_ICONS = {
   mail: 'M4 6h16v12H4zM4 7l8 6 8-6',
   trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
 };
-const APP_VERSION = '3.8';
+const APP_VERSION = '3.9';
 // I iOS-appen vises appens eget versjonsnummer, i nettappen APP_VERSION
 const appVersion = () => window.nativeApp?.version || APP_VERSION;
 // E-post til kundestøtte med versjon og enhet fylt inn, så det er lettere å hjelpe
@@ -4109,15 +4110,16 @@ const actions = {
   },
   'iv-copy': (el) => {
     const en = db.draft.entries[+el.dataset.e];
-    if (en.intervals.some((x) => x.round > 1)) {
-      // Første drag i hver runde kopieres til resten av runden (pausen før neste runde beholdes)
-      const firsts = {};
-      en.intervals = en.intervals.map((x, j, all) => {
-        if (!firsts[x.round]) return (firsts[x.round] = x);
-        const endRest = all[j + 1]?.round !== x.round ? x.restSec : firsts[x.round].restSec;
-        return { ...firsts[x.round], restSec: endRest };
+    if (el.dataset.r) {
+      // Første drag i runden kopieres til resten av runden (pausen før neste runde beholdes)
+      const r = +el.dataset.r, all = en.intervals;
+      const first = all.find((x) => x.round === r);
+      en.intervals = all.map((x, j) => {
+        if (x.round !== r || x === first) return x;
+        const endRest = all[j + 1]?.round !== r ? x.restSec : first.restSec;
+        return { ...first, restSec: endRest };
       });
-      toast('Drag 1 er kopiert til resten av hver runde');
+      toast(`Drag 1 er kopiert til alle dragene i runde ${r}`);
     } else {
       const first = en.intervals[0];
       en.intervals = en.intervals.map(() => ({ ...first }));
@@ -4125,6 +4127,39 @@ const actions = {
     }
     save();
     renderEditor();
+  },
+  // Kun drag / drag i runder. Til runder: dragene blir runde 1, og runde 2 får like mange tomme drag
+  'iv-mode': (el) => {
+    const en = db.draft.entries[+el.dataset.e];
+    const ivs = (en.intervals ||= []);
+    const isRounds = ivs.some((x) => x.round > 1);
+    if (el.dataset.v === 'rounds' && !isRounds) {
+      if (!ivs.length) ivs.push(blankInterval());
+      ivs.forEach((x) => (x.round = 1));
+      const n = ivs.length;
+      for (let k = 0; k < n; k++) ivs.push({ ...blankInterval(), round: 2 });
+    } else if (el.dataset.v === 'flat' && isRounds) {
+      ivs.forEach((x) => delete x.round);
+    } else return;
+    save();
+    renderEditor();
+  },
+  // Runde 1 kopieres til alle rundene (samme drag og pauser; pausen før neste runde beholdes)
+  'iv-copy-round': (el) => {
+    const en = db.draft.entries[+el.dataset.e];
+    const ivs = en.intervals;
+    const nRounds = Math.max(...ivs.map((x) => x.round || 1));
+    const r1 = ivs.filter((x) => x.round === 1);
+    const endRest = (r) => { const g = ivs.filter((x) => x.round === r); return g[g.length - 1]?.restSec ?? r1[r1.length - 1].restSec; };
+    const out = [];
+    for (let r = 1; r <= nRounds; r++) {
+      const rest = endRest(r);
+      r1.forEach((x, k) => out.push({ ...x, round: r, restSec: k === r1.length - 1 ? rest : x.restSec }));
+    }
+    en.intervals = out;
+    save();
+    renderEditor();
+    toast(`Runde 1 er kopiert til alle ${nRounds} rundene`);
   },
   // Antall runder: ny runde starter med like mange tomme drag som runden før
   'iv-round': (el) => {
