@@ -575,13 +575,15 @@ function shortSummary(en) {
   const st = strengthStats(en);
   if (!st) return '';
   if (en.mode === 'max') return `1RM-test: ${st.tested ? `${fmtNum(st.tested, 2)} kg` : 'ingen godkjente løft'}`;
-  const full = setsSummary(en.sets, exMeasure(ex));
-  if (!full.includes(',')) return full; // like sett: «3 × 5 × 105 kg»
+  // Alltid samme mønster: antall sett · beste sett («4 sett · 85 kg × 6», «3 sett · 40 kg × 40 m»)
   const m = exMeasure(ex);
-  if (m === 'time') return `${st.sets} sett · lengste ${fmtDuration(st.maxSec)}`;
-  if (m === 'distance') return `${st.sets} sett${st.heaviest ? ` · opptil ${fmtNum(st.heaviest, 2)} kg` : ''}`;
-  // Ulike sett: antall sett og det tyngste settet (vekt × reps), eller flest reps for kroppsvekt
   const done = en.sets.filter(setDone);
+  if (m === 'time') return `${st.sets} sett · lengste ${fmtDuration(st.maxSec)}${st.heaviest ? ` (+${fmtNum(st.heaviest, 2)} kg)` : ''}`;
+  if (m === 'distance') {
+    const top = [...done].sort((a, b) => (b.weight || 0) - (a.weight || 0) || (b.meters || 0) - (a.meters || 0))[0];
+    return `${st.sets} sett · ${top.weight ? `${fmtNum(top.weight, 2)} kg × ` : ''}${fmtNum(top.meters || 0, 0)} m`;
+  }
+  // Vekt og reps: tyngste sett, eller flest reps for kroppsvekt
   const weighted = done.filter((s) => s.weight > 0).length > st.sets / 2;
   if (!weighted) return `${st.sets} sett · opptil ${st.maxReps} reps`;
   const top = done.filter((s) => s.weight > 0).sort((a, b) => b.weight - a.weight || b.reps - a.reps)[0];
@@ -3717,7 +3719,7 @@ const MORE_ICONS = {
   mail: 'M4 6h16v12H4zM4 7l8 6 8-6',
   trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
 };
-const APP_VERSION = '4.0';
+const APP_VERSION = '4.1';
 // I iOS-appen vises appens eget versjonsnummer, i nettappen APP_VERSION
 const appVersion = () => window.nativeApp?.version || APP_VERSION;
 // E-post til kundestøtte med versjon og enhet fylt inn, så det er lettere å hjelpe
